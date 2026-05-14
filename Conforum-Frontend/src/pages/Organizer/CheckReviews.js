@@ -1,0 +1,549 @@
+import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
+import { useSearchParams } from "react-router-dom";
+import Layout from "../../components/Layout";
+import { useOrganizerConference } from "../../context/OrganizerConferenceContext";
+import DonutChart from "../../components/DonutChart";
+import { Card, CardContent } from "../../components/ui/card";
+import { Badge } from "../../components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
+import { Skeleton } from "../../components/ui/skeleton";
+import { Users, AlertTriangle, ShieldCheck } from "lucide-react";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const getPaperStatusBadge = (status, hasReviews, decision) => {
+  // If a final decision has been given, always show that — never "Pending Review"
+  if (decision && decision !== "pending") return getDecisionBadge(decision);
+  if (status === "assigned" && !hasReviews) return <Badge variant="warning">Under Review</Badge>;
+  if (hasReviews) return <Badge variant="success">Reviewed</Badge>;
+  return <Badge variant="secondary">Pending Review</Badge>;
+};
+
+const getDecisionBadge = (decision) => {
+  if (decision === "Accepted") return <Badge variant="success">Accepted</Badge>;
+  if (decision === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
+  if (decision === "Modification Required") return <Badge variant="warning">Modification Required</Badge>;
+  if (decision === "Assigned") return <Badge variant="purple">Assigned</Badge>;
+  return <Badge variant="outline">{decision}</Badge>;
+};
+
+const getPlagiarismBadgeClass = (score) => {
+  if (score === null || score === undefined) return "bg-muted text-muted-foreground";
+  if (score <= 15) return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+  if (score <= 25) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
+  return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+};
+
+const getPlagiarismLabel = (score) => {
+  if (score === null || score === undefined) return "Not recorded";
+  if (score <= 15) return "Low Similarity";
+  if (score <= 25) return "Moderate Similarity";
+  return "High Similarity";
+};
+
+// ─── Skeletons ────────────────────────────────────────────────────────────────
+
+const PaperCardSkeleton = () => (
+  <Card className="mb-6">
+    <CardContent className="p-6">
+      <div className="flex justify-between items-start flex-wrap gap-6">
+        <div className="flex-1 min-w-[250px] space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-6 w-24 rounded-full" />
+          </div>
+          <Skeleton className="h-5 w-72" />
+          <Skeleton className="h-6 w-32 rounded-full" />
+        </div>
+        <div className="flex gap-10 items-center flex-wrap">
+          <Skeleton className="h-24 w-24 rounded-full" />
+          <Skeleton className="h-24 w-24 rounded-full" />
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const ReviewCardSkeleton = () => (
+  <Card className="mb-4">
+    <CardContent className="p-4">
+      <div className="flex items-start gap-3">
+        <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-5 w-52" />
+          <Skeleton className="h-4 w-64" />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+            {[0, 1, 2, 3, 4].map((j) => (
+              <div key={j} className="space-y-1">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-4 w-8" />
+              </div>
+            ))}
+          </div>
+          <Skeleton className="h-16 w-full rounded-lg mt-1" />
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+const ReviewDetails = () => {
+  const { conferenceId, conferenceName } = useOrganizerConference();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Main data
+  const [papers, setPapers] = useState([]);
+  const [reviewManagementData, setReviewManagementData] = useState([]);
+
+  // Selected paper state
+  const [selectedPaperId, setSelectedPaperId] = useState(null);
+  const [selectedPaper, setSelectedPaper] = useState(null);
+  const [reviewMgmtPaper, setReviewMgmtPaper] = useState(null);
+  const [reviews, setReviews] = useState([]);
+
+  // Loading & error states
+  const [loadingPapers, setLoadingPapers] = useState(true);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Ref to prevent auto‑selection after the initial load
+  const autoSelectDone = useRef(false);
+  // Ref to cancel in‑flight requests when paper changes quickly
+  const abortControllerRef = useRef(null);
+
+  // 1. Fetch papers and review management data ONCE when conferenceId changes
+  useEffect(() => {
+    if (!conferenceId) return;
+
+    const fetchInitialData = async () => {
+      setLoadingPapers(true);
+      try {
+        const [papersRes, mgmtRes] = await Promise.allSettled([
+          axios.get(`/api/conference/${conferenceId}/papers`),
+          axios.get(`/api/organizer/review-management/${conferenceId}`),
+        ]);
+
+        let papersList = [];
+        if (papersRes.status === "fulfilled") {
+          papersList = papersRes.value.data?.data?.papers ?? papersRes.value.data?.papers ?? [];
+          setPapers(papersList);
+        }
+
+        let mgmtList = [];
+        if (mgmtRes.status === "fulfilled") {
+          const raw = mgmtRes.value.data?.data ?? mgmtRes.value.data;
+          mgmtList = Array.isArray(raw) ? raw : [];
+          setReviewManagementData(mgmtList);
+        }
+      } catch (err) {
+        console.error("Error fetching initial data:", err);
+        setError("Failed to load papers.");
+      } finally {
+        setLoadingPapers(false);
+      }
+    };
+    fetchInitialData();
+  }, [conferenceId]);
+
+  // 2. Sync selectedPaperId with URL query parameter (after papers are loaded)
+  useEffect(() => {
+    if (loadingPapers) return; // Wait until papers are available
+
+    const paperIdFromUrl = searchParams.get("paperId");
+    if (paperIdFromUrl) {
+      // Ensure the paper exists in the current list
+      const paperExists = papers.some(
+        (p) => String(p.id || p._id) === paperIdFromUrl
+      );
+      if (paperExists && selectedPaperId !== paperIdFromUrl) {
+        setSelectedPaperId(paperIdFromUrl);
+        autoSelectDone.current = true; // URL takes precedence, disable auto-select
+      }
+    } else if (!selectedPaperId && papers.length > 0 && !autoSelectDone.current) {
+      // No paperId in URL → auto‑select first selectable paper
+      const decidedIds = new Set(
+        reviewManagementData
+          .filter((p) => p.decision && p.decision !== "pending")
+          .map((p) => String(p.paperId))
+      );
+      const firstSelectable = papers.find((p) => {
+        const id = String(p.id || p._id);
+        return p.status !== "pending" || decidedIds.has(id);
+      });
+      if (firstSelectable) {
+        const newId = String(firstSelectable.id || firstSelectable._id);
+        setSelectedPaperId(newId);
+        // Update URL to reflect the auto‑selected paper
+        setSearchParams({ paperId: newId, conferenceId });
+        autoSelectDone.current = true;
+      }
+    }
+  }, [papers, reviewManagementData, loadingPapers, searchParams, selectedPaperId, conferenceId, setSearchParams]);
+
+  // 3. Fetch paper details and reviews whenever selectedPaperId changes
+  useEffect(() => {
+    // Cancel any ongoing request when a new paper is selected
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (!selectedPaperId) {
+      setSelectedPaper(null);
+      setReviewMgmtPaper(null);
+      setReviews([]);
+      return;
+    }
+
+    // Sync review-management entry immediately (no extra request needed)
+    const mgmtEntry = reviewManagementData.find(
+      (p) => String(p.paperId) === String(selectedPaperId)
+    );
+    setReviewMgmtPaper(mgmtEntry ?? null);
+
+    const fetchPaperAndReviews = async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setLoadingReviews(true);
+      setError(null);
+
+      try {
+        // Fetch paper details (authors, compliance, plagiarism)
+        const paperRes = await axios.get(`/api/author/research-paper/${selectedPaperId}`, {
+          signal: controller.signal,
+        });
+        setSelectedPaper(paperRes.data?.data ?? paperRes.data);
+
+        // Fetch reviewer submissions – failure means none exist yet (normal)
+        try {
+          const reviewsRes = await axios.get(`/api/organizer/reviews/${selectedPaperId}`, {
+            signal: controller.signal,
+          });
+          const list = reviewsRes.data?.data ?? reviewsRes.data ?? [];
+          setReviews(Array.isArray(list) ? list : []);
+        } catch {
+          setReviews([]);
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching paper details:", err);
+          setError(err.response?.data?.error || "Failed to load paper details.");
+          setSelectedPaper(null);
+          setReviews([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingReviews(false);
+        }
+      }
+    };
+
+    fetchPaperAndReviews();
+  }, [selectedPaperId, reviewManagementData]);
+
+  // Handlers
+  const handlePaperSelect = (paperId) => {
+    setSelectedPaperId(paperId);
+    setSearchParams({ paperId, conferenceId });
+  };
+
+  // Derived values
+  const organizerPlagiarismScore = selectedPaper?.organizer_plagiarism_score;
+  const hasOrganizerScore =
+    organizerPlagiarismScore !== null && organizerPlagiarismScore !== undefined;
+  const decision = reviewMgmtPaper?.decision ?? null;
+  const wasReviewedByOrganizer =
+    !!reviewMgmtPaper && !!decision && decision !== "pending" && reviews.length === 0;
+  const organizerComments =
+    reviewMgmtPaper?.organizerCommentsForAuthors ??
+    reviewMgmtPaper?.organizer_comments_for_authors ??
+    reviewMgmtPaper?.commentsForAuthors ??
+    reviewMgmtPaper?.comments_for_authors ??
+    null;
+
+  const decidedPaperIds = new Set(
+    reviewManagementData
+      .filter((p) => p.decision && p.decision !== "pending")
+      .map((p) => String(p.paperId))
+  );
+
+  // Render
+  return (
+    <Layout title="ConForum - Review Details">
+      <div className="flex-1 p-6 lg:p-10 overflow-auto bg-background">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-4xl font-bold mb-6 text-center text-foreground">
+            {conferenceName || "Conference"} – Review Details
+          </h2>
+
+          {/* Paper selector – always visible */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Select Paper
+            </label>
+            {loadingPapers ? (
+              <Skeleton className="h-10 w-full md:w-96 rounded-md" />
+            ) : (
+              <Select value={selectedPaperId || ""} onValueChange={handlePaperSelect}>
+                <SelectTrigger className="w-full md:w-96">
+                  <SelectValue placeholder="Choose a paper..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {papers.map((paper) => {
+                    const paperId = String(paper.id || paper._id);
+                    const isOrganizerReviewed = decidedPaperIds.has(paperId);
+                    const isDisabled = paper.status === "pending" && !isOrganizerReviewed;
+                    return (
+                      <SelectItem
+                        key={paperId}
+                        value={paperId}
+                        disabled={isDisabled}
+                        className={isDisabled ? "text-muted-foreground italic" : ""}
+                      >
+                        {paper.title}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* Right panel – only reloads when selectedPaperId changes */}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive mb-6">
+              {error}
+            </div>
+          )}
+
+          {loadingReviews ? (
+            <>
+              <PaperCardSkeleton />
+              <Skeleton className="h-7 w-36 mb-4" />
+              <ReviewCardSkeleton />
+              <ReviewCardSkeleton />
+            </>
+          ) : selectedPaper ? (
+            <>
+              {/* Paper Info Card */}
+              <Card className="mb-6">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start flex-wrap gap-6">
+                    <div className="flex-1 min-w-[250px]">
+                      <div className="flex items-center gap-3 flex-wrap mb-2">
+                        <h3 className="text-2xl text-foreground font-semibold">
+                          {selectedPaper.title}
+                        </h3>
+                        {getPaperStatusBadge(selectedPaper.status, reviews.length > 0, decision)}
+                      </div>
+                      <p className="text-muted-foreground text-base leading-relaxed">
+                        <span className="font-medium text-foreground">Author(s):</span>{" "}
+                        {selectedPaper.paper_authors?.length > 0
+                          ? selectedPaper.paper_authors
+                              .map(
+                                (pa) =>
+                                  `${pa.authors?.first_name || ""} ${pa.authors?.last_name || ""} (${pa.authors?.email || ""})`
+                              )
+                              .join(", ")
+                          : "N/A"}
+                      </p>
+                      <div className="mt-4">
+                        <span className="text-sm font-medium text-muted-foreground">
+                          Plagiarism Score:{" "}
+                        </span>
+                        {hasOrganizerScore ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold ${getPlagiarismBadgeClass(
+                              organizerPlagiarismScore
+                            )}`}
+                          >
+                            {organizerPlagiarismScore}%
+                            <span className="font-normal text-xs">
+                              — {getPlagiarismLabel(organizerPlagiarismScore)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-sm text-muted-foreground italic">
+                            Not recorded by Editor
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-10 items-center flex-wrap">
+                      {selectedPaper.compliance_report && (
+                        <DonutChart
+                          value={Number(
+                            selectedPaper.compliance_report?.percentage || 0
+                          ).toFixed(2)}
+                          label="IEEE Compliance"
+                          color="#10b981"
+                        />
+                      )}
+                      {hasOrganizerScore && (
+                        <DonutChart
+                          value={Number(organizerPlagiarismScore).toFixed(2)}
+                          label="Plagiarism"
+                          color={
+                            organizerPlagiarismScore <= 15
+                              ? "#10b981"
+                              : organizerPlagiarismScore <= 25
+                              ? "#f59e0b"
+                              : "#ef4444"
+                          }
+                        />
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Review Section */}
+              <div>
+                <h2 className="text-xl font-bold mb-4 text-foreground">
+                  Review Details
+                </h2>
+
+                {wasReviewedByOrganizer ? (
+                  <Card className="border-teal-200 dark:border-teal-800">
+                    <div className="flex items-center gap-2 px-5 py-3 bg-teal-100/60 dark:bg-teal-900/40 border-b border-teal-200 dark:border-teal-800 rounded-t-lg">
+                      <ShieldCheck className="h-5 w-5 text-teal-600 dark:text-teal-400 flex-shrink-0" />
+                      <span className="text-base font-semibold text-teal-700 dark:text-teal-300">
+                        Reviewed by Editor
+                      </span>
+                    </div>
+                    <CardContent className="p-5 space-y-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-muted-foreground">
+                          Decision:
+                        </span>
+                        {getDecisionBadge(decision)}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                          Comments for Authors
+                        </p>
+                        {organizerComments ? (
+                          <p className="text-sm text-foreground bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 leading-relaxed">
+                            {organizerComments}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">
+                            No comments were left for the authors.
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : reviews.length === 0 ? (
+                  <Card className="bg-warning/10 border-warning/20">
+                    <CardContent className="p-6 text-center">
+                      <AlertTriangle className="h-10 w-10 text-warning mx-auto mb-2" />
+                      <p className="text-warning font-medium">
+                        No reviews have been submitted yet.
+                      </p>
+                      <p className="text-sm text-warning/80 mt-1">
+                        Once reviewers submit their evaluations, they will appear here.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {reviews.map((review, index) => (
+                      <Card key={review.id || index}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0">
+                              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                <Users className="h-5 w-5 text-primary" />
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold text-foreground">
+                                Reviewer: {review.users?.name || "N/A"}
+                              </h3>
+                              <p className="text-sm text-muted-foreground mb-3">
+                                Email: {review.users?.email || "N/A"}
+                              </p>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                                {[
+                                  ["Originality", review.originality],
+                                  ["Technical Quality", review.technical_quality],
+                                  ["Significance", review.significance],
+                                  ["Clarity", review.clarity],
+                                  ["Relevance", review.relevance],
+                                ].map(([label, val]) => (
+                                  <div key={label}>
+                                    <span className="font-medium text-muted-foreground">
+                                      {label}:
+                                    </span>
+                                    <p className="text-foreground">{val ?? "N/A"}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-3 flex items-center gap-2">
+                                <span className="font-medium text-muted-foreground">
+                                  Overall Recommendation:
+                                </span>
+                                <Badge variant="outline">
+                                  {review.overall_recommendation}
+                                </Badge>
+                              </div>
+                              <div className="mt-2">
+                                <span className="font-medium text-muted-foreground">
+                                  Technical Confidence:
+                                </span>
+                                <span className="ml-2 text-foreground">
+                                  {review.technical_confidence || "N/A"}/10
+                                </span>
+                              </div>
+                              {review.comments_for_authors && (
+                                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+                                  <p className="text-sm font-medium text-foreground mb-1">
+                                    Comments for Authors:
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {review.comments_for_authors}
+                                  </p>
+                                </div>
+                              )}
+                              {review.comments_for_organizers && (
+                                <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 rounded-lg">
+                                  <p className="text-sm font-medium text-foreground mb-1">
+                                    Comments for Editor:
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {review.comments_for_organizers}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : !loadingPapers && (
+            <Card>
+              <CardContent className="p-12 text-center text-muted-foreground">
+                Select a paper above to view its review details.
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default ReviewDetails;
