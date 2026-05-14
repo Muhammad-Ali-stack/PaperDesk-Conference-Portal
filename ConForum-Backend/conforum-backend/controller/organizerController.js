@@ -54,7 +54,7 @@ const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, s
                 <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Conference:</strong> ${conferenceName}</p>
                 <p style="margin:0;font-size:14px;color:#374151;"><strong>Status:</strong> ${statusLabel}</p>
               </div>
-              <p style="margin:0;font-size:13px;color:#9ca3af;">If you have any questions, please contact the conference organizers.</p>
+              <p style="margin:0;font-size:13px;color:#9ca3af;">If you have any questions, please contact the conference Editor.</p>
             </td>
           </tr>
           <tr>
