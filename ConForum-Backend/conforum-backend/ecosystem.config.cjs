@@ -19,7 +19,7 @@ module.exports = {
     {
       name: "conforum-ieee-checker",
       script: "app.py",
-     cwd: "../conforum-ieee-checker/", 
+      cwd: "../conforum-ieee-checker/",
       interpreter: "python",
       watch: false,
       max_memory_restart: "300M",
@@ -32,5 +32,17 @@ module.exports = {
       restart_delay: 3000,
       max_restarts: 10,
     },
+    {
+  name: "conforum-frontend",
+  script: "D:\\ICONICS\\ICONICS CMP\\ConForum-Frontend\\node_modules\\serve\\build\\main.js",
+  args: "-s build -l 4000",
+  cwd: "D:\\ICONICS\\ICONICS CMP\\ConForum-Frontend\\",
+  watch: false,
+  error_file: "../logs/frontend-error.log",
+  out_file: "../logs/frontend-out.log",
+  log_date_format: "YYYY-MM-DD HH:mm:ss",
+  restart_delay: 3000,
+  max_restarts: 10,
+},
   ],
 };
