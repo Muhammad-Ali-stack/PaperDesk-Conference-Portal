@@ -35,7 +35,10 @@ import {
   Shield,
 } from "lucide-react";
 
+// Minimum score required to submit (below this, submission is blocked)
 const COMPLIANCE_BLOCK_THRESHOLD = 40;
+
+// Score between this and block threshold shows a warning but allows submission
 const COMPLIANCE_WARN_THRESHOLD = 60;
 
 function AuthorForm({ conferenceName }) {
@@ -52,8 +55,13 @@ function AuthorForm({ conferenceName }) {
   const [loading, setLoading] = useState(true);
   const [auth] = useAuth();
   const fileInputRef = useRef(null);
+
+  // Stores the compliance report returned from the API after PDF upload
   const [complianceReport, setComplianceReport] = useState(null);
+
+  // True while the compliance API call is in progress
   const [complianceLoading, setComplianceLoading] = useState(false);
+
   const [showModal, setShowModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [abstractWordCount, setAbstractWordCount] = useState(0);
@@ -61,10 +69,12 @@ function AuthorForm({ conferenceName }) {
   const [countries, setCountries] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
 
+  // Submission is blocked if compliance report exists and score is below minimum threshold
   const isBlocked =
     complianceReport !== null &&
     complianceReport.percentage < COMPLIANCE_BLOCK_THRESHOLD;
 
+  // Default author state — first author is always the logged-in user
   const [authors, setAuthors] = useState([
     {
       firstName: "",
@@ -77,6 +87,7 @@ function AuthorForm({ conferenceName }) {
     },
   ]);
 
+  // Fetch country list from external API on mount
   useEffect(() => {
     const fetchCountries = async () => {
       setLoadingCountries(true);
@@ -99,6 +110,7 @@ function AuthorForm({ conferenceName }) {
     fetchCountries();
   }, []);
 
+  // Fetch conference details (name and review mode) by ID
   useEffect(() => {
     const fetchConference = async () => {
       try {
@@ -114,6 +126,7 @@ function AuthorForm({ conferenceName }) {
     fetchConference();
   }, [id]);
 
+  // Pre-fill the first author's email with the logged-in user's email
   useEffect(() => {
     if (auth?.user) {
       setAuthors([
@@ -131,6 +144,7 @@ function AuthorForm({ conferenceName }) {
     }
   }, [auth]);
 
+  // Clear file, paper state, and compliance report when user removes the file
   const removeFile = () => {
     setSelectedFile(null);
     setPaper(null);
@@ -140,6 +154,7 @@ function AuthorForm({ conferenceName }) {
     }
   };
 
+  // Add a new blank co-author (max 15 authors)
   const addAuthor = () => {
     if (authors.length >= 15) {
       toast.error("You can add up to 15 authors only.");
@@ -159,12 +174,14 @@ function AuthorForm({ conferenceName }) {
     ]);
   };
 
+  // Remove a co-author by index (first author cannot be removed)
   const removeAuthor = (index) => {
     if (index === 0) return;
     const updatedAuthors = authors.filter((_, i) => i !== index);
     setAuthors(updatedAuthors);
   };
 
+  // Handle text/checkbox input changes for author fields
   const handleInputChange = (index, event) => {
     const { name, value, checked } = event.target;
     const newAuthors = [...authors];
@@ -172,17 +189,19 @@ function AuthorForm({ conferenceName }) {
     setAuthors(newAuthors);
   };
 
+  // Handle country dropdown change for a specific author
   const handleCountryChange = (index, value) => {
     const newAuthors = [...authors];
     newAuthors[index].country = value;
     setAuthors(newAuthors);
   };
 
-  // ✅ FIXED: handleFileChange with proper response extraction
+  // Handle PDF file selection and trigger compliance check automatically
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
+    // Only accept PDF files
     if (file.type !== "application/pdf") {
       removeFile();
       toast.error("Please upload a PDF file only.");
@@ -197,19 +216,22 @@ function AuthorForm({ conferenceName }) {
     try {
       const formData = new FormData();
       formData.append("paper", file);
+
+      // Pass conference mode so the checker can apply blind-review rules
       if (conferenceMode) {
         formData.append("conference_mode", conferenceMode);
       }
 
       const response = await axios.post("/api/author/check-compliance", formData);
-      
-      // Extract nested compliance report
+
+      // Extract the nested compliance report from the API response
       const report = response.data?.data?.complianceReport;
       if (!report) {
         throw new Error("Invalid compliance response");
       }
+
       setComplianceReport(report);
-      
+
       if (report.percentage < COMPLIANCE_BLOCK_THRESHOLD) {
         toast.error(
           `Compliance score ${report.percentage}% is below the minimum ${COMPLIANCE_BLOCK_THRESHOLD}%. Fix the issues and re-upload.`
@@ -226,32 +248,52 @@ function AuthorForm({ conferenceName }) {
     }
   };
 
+  // Main form submission handler with all validation checks
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    // Check 1: PDF must be uploaded
     if (!paper) {
       toast.error("Please upload a PDF manuscript before submitting.");
       return;
     }
 
+    // Check 2: Block submission if compliance check is still running
+    // This prevents submitting before the check finishes
+    if (complianceLoading) {
+      toast.error("Please wait for the compliance check to complete before submitting.");
+      return;
+    }
+
+    // Check 3: Block submission if PDF was uploaded but compliance check never completed
+    // (e.g. it errored out silently or was bypassed)
+    if (paper && !complianceReport) {
+      toast.error("Compliance check did not complete. Please re-upload your PDF.");
+      return;
+    }
+
+    // Check 4: Abstract word count must be between 100 and 300
     const currentWordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
     if (currentWordCount < 100 || currentWordCount > 300) {
       toast.error(`Abstract must be between 100 and 300 words. You currently have ${currentWordCount}.`);
       return;
     }
 
+    // Check 5: Title must be at least 3 words
     const titleWordCount = title.trim().split(/\s+/).filter(Boolean).length;
     if (titleWordCount < 3) {
       toast.error("Title must be at least 3 words.");
       return;
     }
 
+    // Check 6: Keywords must not exceed 8
     const keywordsArray = keywords.split(",").map((kw) => kw.trim()).filter(Boolean);
     if (keywordsArray.length > 8) {
       toast.error("Keywords should not be more than 8.");
       return;
     }
 
+    // Check 7: At least one author must have required fields filled
     const validAuthor = authors.find(
       (author) => author.firstName && author.email && author.country
     );
@@ -260,6 +302,7 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    // Check 8: Organizers and reviewers of this conference cannot submit papers
     const isInvalidRoleForSubmission = auth?.roles?.some(
       (role) =>
         ["organizer", "reviewer"].includes(role.role) &&
@@ -270,6 +313,7 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    // Check 9: Block if compliance score is below the minimum threshold (40%)
     if (complianceReport && complianceReport.percentage < COMPLIANCE_BLOCK_THRESHOLD) {
       toast.error(
         `Your paper scored ${complianceReport.percentage}%. A minimum of ${COMPLIANCE_BLOCK_THRESHOLD}% is required to submit. Please fix the issues and re-upload.`
@@ -277,6 +321,7 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    // Check 10: Warn if score is between 40% and 60% — show confirmation modal
     if (
       complianceReport &&
       complianceReport.percentage >= COMPLIANCE_BLOCK_THRESHOLD &&
@@ -286,9 +331,11 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    // All checks passed — proceed with submission
     await submitForm();
   };
 
+  // Sends the final form data to the backend
   const submitForm = async () => {
     setIsSubmitting(true);
     setShowSubmittingMessage(true);
@@ -310,6 +357,7 @@ function AuthorForm({ conferenceName }) {
       toast.success(response.data.message);
       navigate("/");
     } catch (error) {
+      // If the backend returns a compliance report, update it in state
       if (error.response?.data?.complianceReport) {
         setComplianceReport(error.response.data.complianceReport);
       }
@@ -322,21 +370,25 @@ function AuthorForm({ conferenceName }) {
     }
   };
 
+  // Called when user confirms submission from the low-score warning modal
   const handleModalConfirm = async () => {
     setShowModal(false);
     await submitForm();
   };
 
+  // Called when user cancels from the low-score warning modal
   const handleModalCancel = () => {
     setShowModal(false);
   };
 
+  // Returns color key based on compliance percentage
   const getComplianceColor = (pct) => {
     if (pct < COMPLIANCE_BLOCK_THRESHOLD) return "red";
     if (pct < COMPLIANCE_WARN_THRESHOLD) return "yellow";
     return "green";
   };
 
+  // Tailwind class maps for each compliance color state
   const complianceColorMap = {
     red: {
       wrapper: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",
@@ -355,6 +407,7 @@ function AuthorForm({ conferenceName }) {
     },
   };
 
+  // Returns Tailwind classes for individual compliance rule items based on severity
   const getRuleStyle = (detail) => {
     if (detail.rule === "Author Anonymity" && detail.severity === "error") {
       return {
@@ -380,6 +433,7 @@ function AuthorForm({ conferenceName }) {
     };
   };
 
+  // Show loading spinner while auth and initial data is being fetched
   if (loading) {
     return (
       <Layout title="ConForum - Submit paper">
@@ -397,6 +451,8 @@ function AuthorForm({ conferenceName }) {
     <Layout title="ConForum - Submit paper">
       <div className="min-h-screen bg-background py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
+
+          {/* Page Header */}
           <div className="text-center mb-12">
             <h1 className="text-4xl font-extrabold text-foreground tracking-tight">
               Submit Your Research
@@ -413,6 +469,7 @@ function AuthorForm({ conferenceName }) {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-8">
+
             {/* Authors Section */}
             <Card>
               <CardHeader className="border-b border-border">
@@ -427,6 +484,7 @@ function AuthorForm({ conferenceName }) {
                     key={index}
                     className="relative p-6 bg-muted/20 rounded-2xl border border-border group"
                   >
+                    {/* Remove button — only shown for co-authors (index > 0) */}
                     {index !== 0 && (
                       <button
                         type="button"
@@ -436,6 +494,7 @@ function AuthorForm({ conferenceName }) {
                         <X className="h-5 w-5" />
                       </button>
                     )}
+
                     <div className="flex items-center space-x-3 mb-6">
                       <div className="h-8 w-8 bg-primary text-primary-foreground rounded-lg flex items-center justify-center font-bold text-sm">
                         {index + 1}
@@ -444,6 +503,7 @@ function AuthorForm({ conferenceName }) {
                         Author Details
                       </h3>
                     </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1">
                         <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest ml-1">
@@ -473,6 +533,7 @@ function AuthorForm({ conferenceName }) {
                         <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest ml-1">
                           Email <span className="text-destructive">*</span>
                         </label>
+                        {/* First author email is pre-filled and locked */}
                         <Input
                           type="email"
                           name="email"
@@ -520,6 +581,8 @@ function AuthorForm({ conferenceName }) {
                         />
                       </div>
                     </div>
+
+                    {/* Badge shown only for the primary/corresponding author */}
                     {index === 0 && (
                       <div className="mt-4 flex items-center space-x-2 px-1">
                         <Badge variant="default" className="text-xs">Primary Corresponding Author</Badge>
@@ -528,6 +591,7 @@ function AuthorForm({ conferenceName }) {
                   </div>
                 ))}
 
+                {/* Add co-author button — hidden when max authors reached */}
                 {authors.length < 15 && (
                   <Button
                     type="button"
@@ -535,10 +599,11 @@ function AuthorForm({ conferenceName }) {
                     onClick={addAuthor}
                     className="w-full py-6 border-dashed"
                   >
-                    + Add Co-Author 
+                    + Add Co-Author
                   </Button>
                 )}
-                
+
+                {/* Warning shown when only one more author slot remains */}
                 {authors.length === 14 && (
                   <p className="text-center text-xs text-muted-foreground">
                     You can add one more author (maximum 15)
@@ -568,11 +633,13 @@ function AuthorForm({ conferenceName }) {
                     required
                   />
                 </div>
+
                 <div className="space-y-2">
                   <div className="flex justify-between items-end ml-1">
                     <label className="text-sm font-bold text-foreground">
                       Abstract <span className="text-destructive">*</span>
                     </label>
+                    {/* Live word count indicator — turns red if out of range */}
                     <span
                       className={`text-[10px] font-bold uppercase tracking-widest ${
                         abstractWordCount < 100 || abstractWordCount > 300
@@ -595,6 +662,7 @@ function AuthorForm({ conferenceName }) {
                     required
                   />
                 </div>
+
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-foreground ml-1">
                     Keywords <span className="text-destructive">*</span>
@@ -619,6 +687,8 @@ function AuthorForm({ conferenceName }) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-8">
+
+                {/* Conference review mode notice — only shown if mode is set */}
                 {conferenceMode && (
                   <div className="mb-6 bg-blue-50 dark:bg-blue-950/30 border-l-4 border-blue-500 p-4 rounded-r-lg">
                     <div className="flex">
@@ -631,15 +701,19 @@ function AuthorForm({ conferenceName }) {
                         </h3>
                         <p className="mt-1 text-sm text-blue-700 dark:text-blue-300 font-medium leading-relaxed">
                           This conference is <strong>{conferenceMode}</strong>.
-                          {conferenceMode === 'double-blind' && " Please ensure you hide your identity and remove all author names, affiliations, and identifying information from the PDF manuscript before uploading."}
-                          {conferenceMode === 'single-blind' && " Reviewers will know your identity, but the reviewers remain anonymous. You may include your details in the manuscript."}
-                          {conferenceMode === 'no-blind' && " Both parties will know each other's identities. You may include your author details in the manuscript."}
+                          {conferenceMode === "double-blind" &&
+                            " Please ensure you hide your identity and remove all author names, affiliations, and identifying information from the PDF manuscript before uploading."}
+                          {conferenceMode === "single-blind" &&
+                            " Reviewers will know your identity, but the reviewers remain anonymous. You may include your details in the manuscript."}
+                          {conferenceMode === "no-blind" &&
+                            " Both parties will know each other's identities. You may include your author details in the manuscript."}
                         </p>
                       </div>
                     </div>
                   </div>
                 )}
 
+                {/* File drop zone — border color changes based on compliance state */}
                 <div
                   className={`relative group border-2 border-dashed rounded-2xl p-12 text-center transition-all ${
                     isBlocked
@@ -657,6 +731,7 @@ function AuthorForm({ conferenceName }) {
                     ref={fileInputRef}
                   />
                   <div className="space-y-4">
+                    {/* Upload icon — changes based on blocked/success/idle state */}
                     <div
                       className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto transition-colors ${
                         isBlocked
@@ -674,9 +749,16 @@ function AuthorForm({ conferenceName }) {
                         <Upload className="w-8 h-8" />
                       )}
                     </div>
+
                     {selectedFile ? (
                       <div>
-                        <p className={`text-lg font-bold truncate max-w-xs mx-auto ${isBlocked ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
+                        <p
+                          className={`text-lg font-bold truncate max-w-xs mx-auto ${
+                            isBlocked
+                              ? "text-destructive"
+                              : "text-green-600 dark:text-green-400"
+                          }`}
+                        >
                           {selectedFile.name}
                         </p>
                         <button
@@ -687,7 +769,7 @@ function AuthorForm({ conferenceName }) {
                           }}
                           className="mt-2 text-xs text-primary hover:underline"
                         >
-                          Remove & Replace
+                          Remove and Replace
                         </button>
                       </div>
                     ) : (
@@ -703,6 +785,7 @@ function AuthorForm({ conferenceName }) {
                   </div>
                 </div>
 
+                {/* Compliance loading indicator — shown while API call is in progress */}
                 {complianceLoading && (
                   <div className="mt-6 flex items-center justify-center space-x-3 text-primary font-bold">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -712,6 +795,7 @@ function AuthorForm({ conferenceName }) {
                   </div>
                 )}
 
+                {/* Compliance report — shown after check completes */}
                 {complianceReport && (
                   <div className={`mt-8 rounded-2xl p-6 border ${colours.wrapper}`}>
                     <div className="flex justify-between items-center mb-4">
@@ -721,8 +805,11 @@ function AuthorForm({ conferenceName }) {
                       </Badge>
                     </div>
 
+                    {/* Red banner — submission is blocked */}
                     {colour === "red" && colours.banner && (
-                      <div className={`mb-4 flex items-start space-x-3 rounded-xl px-4 py-3 ${colours.banner}`}>
+                      <div
+                        className={`mb-4 flex items-start space-x-3 rounded-xl px-4 py-3 ${colours.banner}`}
+                      >
                         <XCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
                         <p className="text-sm font-bold">
                           Submission blocked - score below {COMPLIANCE_BLOCK_THRESHOLD}%.
@@ -731,8 +818,11 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     )}
 
+                    {/* Yellow banner — low score warning, submission still allowed */}
                     {colour === "yellow" && colours.banner && (
-                      <div className={`mb-4 flex items-start space-x-3 rounded-xl px-4 py-3 ${colours.banner}`}>
+                      <div
+                        className={`mb-4 flex items-start space-x-3 rounded-xl px-4 py-3 ${colours.banner}`}
+                      >
                         <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
                         <p className="text-sm font-bold">
                           Low compliance score - you may still submit but we strongly
@@ -741,6 +831,7 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     )}
 
+                    {/* Individual compliance rule results */}
                     <ul className="space-y-3">
                       {complianceReport.details.map((detail, index) => {
                         const style = getRuleStyle(detail);
@@ -768,10 +859,11 @@ function AuthorForm({ conferenceName }) {
               </CardContent>
             </Card>
 
+            {/* Submit Button */}
             <div className="pt-8">
               <Button
                 type="submit"
-                disabled={isSubmitting || isBlocked}
+                disabled={isSubmitting || isBlocked || complianceLoading}
                 className="w-full py-6 text-lg font-extrabold"
                 variant={isBlocked ? "destructive" : "default"}
               >
@@ -780,18 +872,27 @@ function AuthorForm({ conferenceName }) {
                     <Loader2 className="h-5 w-5 animate-spin" />
                     <span>SUBMITTING MANUSCRIPT...</span>
                   </div>
+                ) : complianceLoading ? (
+                  <div className="flex items-center justify-center space-x-3">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>WAITING FOR COMPLIANCE CHECK...</span>
+                  </div>
                 ) : isBlocked ? (
                   `SUBMISSION BLOCKED - SCORE TOO LOW (${complianceReport?.percentage}%)`
                 ) : (
                   "SUBMIT RESEARCH PAPER"
                 )}
               </Button>
+
+              {/* Blocked message below the button */}
               {isBlocked && (
                 <p className="text-center text-xs font-bold text-destructive mt-3 uppercase tracking-widest">
                   Minimum {COMPLIANCE_BLOCK_THRESHOLD}% IEEE compliance required to submit.
                   Fix the issues above and re-upload your PDF.
                 </p>
               )}
+
+              {/* Processing message shown while submission API call is in progress */}
               {showSubmittingMessage && (
                 <p className="text-center text-xs font-bold text-primary mt-4 uppercase tracking-widest animate-pulse">
                   Your submission is being processed. Please do not refresh.
@@ -802,7 +903,7 @@ function AuthorForm({ conferenceName }) {
         </div>
       </div>
 
-      {/* Warning modal */}
+      {/* Low compliance score warning modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
           <Card className="w-full max-w-md">
@@ -827,9 +928,13 @@ function AuthorForm({ conferenceName }) {
               </p>
               <div className="flex justify-end gap-3">
                 <Button type="button" variant="outline" onClick={handleModalCancel}>
-                  Go Back & Fix
+                  Go Back and Fix
                 </Button>
-                <Button type="button" onClick={handleModalConfirm} className="bg-yellow-500 hover:bg-yellow-600 text-white">
+                <Button
+                  type="button"
+                  onClick={handleModalConfirm}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white"
+                >
                   Submit Anyway
                 </Button>
               </div>
