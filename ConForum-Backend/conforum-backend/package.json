@@ -1,0 +1,36 @@
+{
+  "name": "conforum-backend",
+  "version": "1.0.0",
+  "description": "ConForum — Conference Management System API",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "Group-2",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.6",
+    "axios": "^1.9.0",
+    "bcrypt": "^5.1.1",
+    "concurrently": "^9.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^8.3.1",
+    "form-data": "^4.0.5",
+    "googleapis": "^144.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.16",
+    "nodemon": "^3.1.7",
+    "p-queue": "^9.1.0",
+    "pdf-lib": "^1.17.1",
+    "title-case": "^4.3.2"
+  },
+  "optionalDependencies": {
+    "gaxios": "^5.1.3",
+    "gcp-metadata": "^5.3.0"
+  }
+}
