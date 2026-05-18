@@ -475,7 +475,7 @@ export const getInvitationByTokenController = async (req, res) => {
 
     const { data: invitation } = await supabase
       .from("invitations")
-      .select("email, role, conference_id, status, conferences!conference_id(conference_name, acronym)")
+      .select("email, role, conference_id, status, conferences!conference_id(conference_name, acronym, expertise)") // ✅ added expertise
       .eq("token", token)
       .eq("status", "pending")
       .maybeSingle();
@@ -492,6 +492,7 @@ export const getInvitationByTokenController = async (req, res) => {
         conferenceId: invitation.conference_id,
         conferenceName: invitation.conferences?.conference_name || null,
         conferenceAcronym: invitation.conferences?.acronym || null,
+        expertise: invitation.conferences?.expertise || [], // ✅ added
       },
     });
   } catch (error) {

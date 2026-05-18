@@ -84,7 +84,7 @@ const ReviewForm = () => {
       return false;
     }
     if (!formData.commentsForOrganizers.trim()) {
-      toast.error("Comments for organizers are required.");
+      toast.error("Comments for Editor are required.");
       return false;
     }
     return true;

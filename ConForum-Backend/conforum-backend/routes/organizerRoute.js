@@ -12,53 +12,52 @@ import {
   getReviewsOfAllPapersController,
   fetchAcceptedPapersController,
   proceedingsPdfGenerationController,
+  getOrganizerConferencesController,
 } from "../controller/organizerController.js";
 import upload from "../middleware/multer.js";
-import { getOrganizerConferencesController } from "../controller/organizerController.js";
+import { requireLogin, isOrganizerRole } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-/** POST /assign-papers/:id — Auto-assigns pending papers to available reviewers by expertise. */
-router.post("/assign-papers/:id", assignPapersToReviewersController);
+// ─── All organizer routes are protected ───────────────────────────────────────
 
-/** POST /assign-paper-manual — Manually assigns one or more reviewers to a specific paper. */
-router.post("/assign-paper-manual", manuallyAssignPaperController);
+/** POST /assign-papers/:id — Auto-assigns pending papers to reviewers by expertise. */
+router.post("/assign-papers/:id", requireLogin, isOrganizerRole, assignPapersToReviewersController);
 
-/** GET /assigned-papers/:conferenceId — Returns all reviewer assignments for a conference. */
-router.get("/assigned-papers/:conferenceId", getAssignmentsByConferenceController);
+/** POST /assign-paper-manual — Manually assigns reviewers to a specific paper. */
+router.post("/assign-paper-manual", requireLogin, manuallyAssignPaperController);
 
-/** GET /review-management/:conferenceId — Returns the consolidated review management table. */
-router.get("/review-management/:conferenceId", getReviewManagementDataController);
+/** GET /assigned-papers/:conferenceId — Returns all assignments for a conference. */
+router.get("/assigned-papers/:conferenceId", requireLogin, getAssignmentsByConferenceController);
 
-/** GET /reviews/:paperId — Returns all reviews submitted for a specific paper. */
-router.get("/reviews/:paperId", getReviewsByPaperIdController);
+/** GET /review-management/:conferenceId — Returns consolidated review management table. */
+router.get("/review-management/:conferenceId", requireLogin, getReviewManagementDataController);
+
+/** GET /reviews/:paperId — Returns all reviews for a specific paper. */
+router.get("/reviews/:paperId", requireLogin, getReviewsByPaperIdController);
 
 /** POST /reviews/all-papers — Returns all reviews for a given array of paper IDs. */
-router.post("/reviews/all-papers", getReviewsOfAllPapersController);
+router.post("/reviews/all-papers", requireLogin, getReviewsOfAllPapersController);
 
 /** POST /update-decision — Sets the final editorial decision for a paper. */
-router.post("/update-decision", updateFinalDecisionController);
+router.post("/update-decision", requireLogin, updateFinalDecisionController);
 
-/** POST /set-technical-weightage — Sets or updates review criteria weightages for a conference. */
-router.post("/set-technical-weightage", setTechnicalWeightageController);
+/** POST /set-technical-weightage — Sets review criteria weightages for a conference. */
+router.post("/set-technical-weightage", requireLogin, setTechnicalWeightageController);
 
-/** GET /get-technical-weightage/:conferenceId — Returns the review criteria weightages. */
-router.get("/get-technical-weightage/:conferenceId", getTechnicalWeightageController);
+/** GET /get-technical-weightage/:conferenceId — Returns review criteria weightages. */
+router.get("/get-technical-weightage/:conferenceId", requireLogin, getTechnicalWeightageController);
 
-/** POST /papers/assigned-reviewers — Returns assignment counts and reviewer details for a set of papers. */
-router.post("/papers/assigned-reviewers", getAssignmentsByPaperController);
+/** POST /papers/assigned-reviewers — Returns assignment counts and reviewer details. */
+router.post("/papers/assigned-reviewers", requireLogin, getAssignmentsByPaperController);
 
-/** GET /get-proceedings-data/:conferenceId — Returns all accepted papers for proceedings generation. */
-router.get("/get-proceedings-data/:conferenceId", fetchAcceptedPapersController);
+/** GET /get-proceedings-data/:conferenceId — Returns accepted papers for proceedings. */
+router.get("/get-proceedings-data/:conferenceId", requireLogin, fetchAcceptedPapersController);
 
-/**
- * POST /upload-proceedings/:conferenceId
- * Accepts an optional intro PDF via multipart upload and generates the
- * conference proceedings PDF from all accepted papers.
- */
-router.post("/upload-proceedings/:conferenceId", upload.single("proceedingsIntro"), proceedingsPdfGenerationController);
+/** POST /upload-proceedings/:conferenceId — Generates conference proceedings PDF. */
+router.post("/upload-proceedings/:conferenceId", requireLogin, upload.single("proceedingsIntro"), proceedingsPdfGenerationController);
 
 /** GET /conferences/:userId — Returns all conferences where the user is an organizer. */
-router.get("/conferences/:userId", getOrganizerConferencesController);
+router.get("/conferences/:userId", requireLogin, getOrganizerConferencesController);
 
 export default router;

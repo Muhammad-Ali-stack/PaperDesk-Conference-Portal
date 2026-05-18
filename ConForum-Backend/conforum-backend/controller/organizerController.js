@@ -4,10 +4,18 @@ import { titleCase } from "title-case";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import PQueue from "p-queue";
 
+// Limits concurrent proceedings PDF generation jobs to 2 at a time.
 const proceedingsQueue = new PQueue({ concurrency: 2 });
 
 /**
- * Helper function to send email notifications to authors about paper status changes.
+ * Helper: sends an email notification to all authors of a paper when its status changes.
+ * This is fire-and-forget — failures are silently swallowed so they never block the response.
+ *
+ * @param {string} paperId      - UUID of the paper whose authors should be notified.
+ * @param {string} subject      - Email subject line.
+ * @param {string} headingText  - Main heading shown inside the email.
+ * @param {string} bodyText     - Body paragraph shown inside the email.
+ * @param {string} statusLabel  - Human-readable status label shown in the details block.
  */
 const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, statusLabel }) => {
   try {
@@ -64,8 +72,8 @@ const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, s
           </tr>
         </table>
       </td>
-    <tr>
-  ｜DSML｜
+    </tr>
+  </table>
 </body>
 </html>
     `;
@@ -75,11 +83,21 @@ const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, s
         sendMail({ type: "paper", to: email, subject, html })
       )
     );
-  } catch (_) {}
+  } catch (_) {
+    // Swallow email errors — they must never block the main response.
+  }
 };
 
 /**
  * Saves or updates the plagiarism score for a paper.
+ *
+ * @route POST /api/organizer/save-plagiarism-score
+ * @param {string} req.body.paperId         - UUID of the paper.
+ * @param {number} req.body.plagiarismScore - Score between 0 and 100.
+ * @returns {200} Score saved.
+ * @returns {400} Validation error.
+ * @returns {404} Paper not found.
+ * @returns {500} Server error.
  */
 export const savePlagiarismScoreController = async (req, res) => {
   try {
@@ -121,8 +139,18 @@ export const savePlagiarismScoreController = async (req, res) => {
 };
 
 /**
- * Automatically assigns pending papers to available reviewers for a conference.
- * Fixes N+1 query by using pre-fetched assignments map instead of querying per paper.
+ * Automatically assigns pending and resubmitted papers to available reviewers
+ * for a conference, matching by expertise keywords where possible.
+ * Papers without a plagiarism score are skipped and reported in the response.
+ * Each reviewer is capped at MAX_PAPERS_PER_REVIEWER assignments.
+ * Each paper receives up to REVIEWERS_PER_PAPER reviewers.
+ *
+ * @route POST /api/organizer/assign-papers/:id
+ * @param {string} req.body.conferenceId - UUID of the conference.
+ * @returns {200} Assignment counts and any warnings.
+ * @returns {400} Conference ID missing.
+ * @returns {404} No eligible papers or reviewers found.
+ * @returns {500} Server error.
  */
 export const assignPapersToReviewersController = async (req, res) => {
   try {
@@ -164,13 +192,13 @@ export const assignPapersToReviewersController = async (req, res) => {
     const reviewerAssignmentCount = {};
     reviewers.forEach((r) => { reviewerAssignmentCount[r.userId] = 0; });
 
-    // Fetch all existing assignments for this conference once
+    // Fetch all existing assignments for this conference in one query to avoid N+1.
     const { data: existingAssignments } = await supabase
       .from("assignments")
       .select("paper_id, reviewer_id")
       .eq("conference_id", conferenceId);
 
-    // Build a map: paper_id -> array of reviewer_ids already assigned
+    // Build an in-memory map of paper_id -> [reviewer_ids already assigned].
     const assignmentsByPaperId = new Map();
     (existingAssignments || []).forEach((a) => {
       if (!assignmentsByPaperId.has(a.paper_id)) {
@@ -182,6 +210,8 @@ export const assignPapersToReviewersController = async (req, res) => {
       }
     });
 
+    // Returns the first reviewer whose expertise overlaps the paper keywords,
+    // is under the assignment cap, and has not already been assigned to this paper.
     const findMatchingReviewer = (keywords, assignedReviewers) => {
       for (const reviewer of reviewers) {
         if (
@@ -200,7 +230,7 @@ export const assignPapersToReviewersController = async (req, res) => {
     const skippedNoPlagiarism = [];
 
     for (const paper of papers) {
-      // Papers without a plagiarism score cannot be assigned — skip and report them.
+      // Papers must have a plagiarism score recorded before they can be assigned.
       if (paper.organizer_plagiarism_score === null || paper.organizer_plagiarism_score === undefined) {
         skippedNoPlagiarism.push({ paperId: paper.id, title: paper.title });
         continue;
@@ -210,14 +240,17 @@ export const assignPapersToReviewersController = async (req, res) => {
       const alreadyAssigned = assignmentsByPaperId.get(paper.id) || [];
       const currentCount = alreadyAssigned.length;
 
+      // Paper already has the maximum number of reviewers — skip it.
       if (currentCount >= REVIEWERS_PER_PAPER) continue;
 
       const newAssignments = [];
       const assignedReviewers = [...alreadyAssigned];
 
       while (assignedReviewers.length < REVIEWERS_PER_PAPER) {
+        // Try to find a reviewer with matching expertise first.
         let assignedReviewer = findMatchingReviewer(keywords, assignedReviewers);
 
+        // Fall back to any available reviewer if no expertise match is found.
         if (!assignedReviewer) {
           assignedReviewer = reviewers.find(
             (r) =>
@@ -239,7 +272,7 @@ export const assignPapersToReviewersController = async (req, res) => {
             newAssignments.push({ paperId: paper.id, reviewerId: assignedReviewer.userId });
             assignedReviewers.push(assignedReviewer.userId);
             reviewerAssignmentCount[assignedReviewer.userId] += 1;
-            // Update the in-memory map so future papers also see this assignment
+            // Update the in-memory map so subsequent papers reflect this assignment.
             if (!assignmentsByPaperId.has(paper.id)) {
               assignmentsByPaperId.set(paper.id, []);
             }
@@ -258,6 +291,7 @@ export const assignPapersToReviewersController = async (req, res) => {
           .update({ status: "assigned" })
           .eq("id", paper.id);
 
+        // Only send the assignment notification email on the first assignment round.
         if (currentCount === 0) {
           sendPaperStatusEmail({
             paperId: paper.id,
@@ -305,6 +339,12 @@ export const assignPapersToReviewersController = async (req, res) => {
 
 /**
  * Returns all reviewer assignments for a conference, grouped by paper.
+ *
+ * @route GET /api/organizer/assigned-papers/:conferenceId
+ * @param {string} req.params.conferenceId - Conference UUID.
+ * @returns {200} { assignments, papersWithAssignments }.
+ * @returns {404} No assignments found.
+ * @returns {500} Server error.
  */
 export const getAssignmentsByConferenceController = async (req, res) => {
   try {
@@ -323,6 +363,7 @@ export const getAssignmentsByConferenceController = async (req, res) => {
       return res.status(404).json({ success: false, message: "No assignments found for this conference." });
     }
 
+    // Group assignment records by paper ID for convenient frontend consumption.
     const papersWithAssignments = {};
     assignments.forEach((a) => {
       const pid = a.paper_id;
@@ -348,15 +389,22 @@ export const getAssignmentsByConferenceController = async (req, res) => {
 
 /**
  * Returns a consolidated review management table for a conference.
+ * Each row includes paper metadata, assigned reviewers, their review status,
+ * recommendations, scores, and the organizer's final decision.
+ *
+ * @route GET /api/organizer/review-management/:conferenceId
+ * @param {string} req.params.conferenceId - Conference UUID.
+ * @returns {200} Array of enriched paper objects.
+ * @returns {500} Server error.
  */
 export const getReviewManagementDataController = async (req, res) => {
   try {
     const { conferenceId } = req.params;
 
-   const { data: papers, error: papersError } = await supabase
-  .from("research_papers")
-  .select("id, title, status, final_decision, compliance_report, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
-  .eq("conference_id", conferenceId);
+    const { data: papers, error: papersError } = await supabase
+      .from("research_papers")
+      .select("id, title, status, final_decision, compliance_report, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
+      .eq("conference_id", conferenceId);
 
     if (papersError) {
       return res.status(500).json({ success: false, message: "Error fetching review management data." });
@@ -379,6 +427,7 @@ export const getReviewManagementDataController = async (req, res) => {
         (a) => a.paper_id === paper.id
       );
 
+      // Build reviewer entries merging assignment and review data.
       const reviewers = paperAssignments.map((assignment) => {
         const review = (allReviews || []).find(
           (r) => r.paper_id === paper.id && r.reviewer_id === assignment.reviewer_id
@@ -409,19 +458,19 @@ export const getReviewManagementDataController = async (req, res) => {
       }));
 
       return {
-  paperId: paper.id,
-  title: paper.title,
-  reviewers,
-  overallstatus: reviewers.every((r) => r.status === "reviewed") && reviewers.length > 0 ? "Consensus" : "In Progress",
-  status: paper.status,
-  decision: paper.final_decision,
-  avgTechConfidence,
-  complianceScore: paper.compliance_report?.percentage ?? null,
-  plagiarismScore: paper.organizer_plagiarism_score ?? null,
-  organizerCommentsForAuthors: paper.organizer_comments_for_authors ?? null,   // <-- ADD THIS LINE
-  authors,
-  conferenceName: paper.conference_name,
-};
+        paperId: paper.id,
+        title: paper.title,
+        reviewers,
+        overallstatus: reviewers.every((r) => r.status === "reviewed") && reviewers.length > 0 ? "Consensus" : "In Progress",
+        status: paper.status,
+        decision: paper.final_decision,
+        avgTechConfidence,
+        complianceScore: paper.compliance_report?.percentage ?? null,
+        plagiarismScore: paper.organizer_plagiarism_score ?? null,
+        organizerCommentsForAuthors: paper.organizer_comments_for_authors ?? null,
+        authors,
+        conferenceName: paper.conference_name,
+      };
     });
 
     return res.status(200).json({
@@ -436,6 +485,12 @@ export const getReviewManagementDataController = async (req, res) => {
 
 /**
  * Returns all reviews submitted for a specific paper, with reviewer details.
+ *
+ * @route GET /api/organizer/reviews/:paperId
+ * @param {string} req.params.paperId - Paper UUID.
+ * @returns {200} Array of review objects.
+ * @returns {404} No reviews found.
+ * @returns {500} Server error.
  */
 export const getReviewsByPaperIdController = async (req, res) => {
   try {
@@ -466,6 +521,13 @@ export const getReviewsByPaperIdController = async (req, res) => {
 
 /**
  * Returns all reviews for a given set of paper IDs.
+ *
+ * @route POST /api/organizer/reviews/all-papers
+ * @param {string[]} req.body.paperIds - Array of paper UUIDs.
+ * @returns {200} Array of review objects.
+ * @returns {400} Invalid or empty paperIds array.
+ * @returns {404} No reviews found.
+ * @returns {500} Server error.
  */
 export const getReviewsOfAllPapersController = async (req, res) => {
   try {
@@ -497,15 +559,22 @@ export const getReviewsOfAllPapersController = async (req, res) => {
 /**
  * Sets the final editorial decision for a paper.
  *
- * This controller now accepts two optional fields in addition to paperId and decision:
- * - commentsForAuthors: free text feedback from the organizer (saved to organizer_comments_for_authors)
- * - plagiarismScore: numeric value (0-100) that is stored in organizer_plagiarism_score.
+ * Optional fields accepted alongside paperId and decision:
+ * - commentsForAuthors: organizer feedback saved to organizer_comments_for_authors.
+ * - plagiarismScore: stored in organizer_plagiarism_score if not already recorded.
  *
- * Both fields are optional. If not provided, the existing values remain unchanged.
+ * When the organizer uses the "Review Myself" flow, plagiarismScore should be
+ * sent in the same request as the decision so both are saved atomically.
  *
- * When the organizer uses the "Review Myself" flow, the plagiarismScore should be sent
- * together with the decision in the same request. This ensures the score is stored
- * atomically with the decision.
+ * @route POST /api/organizer/update-decision
+ * @param {string}  req.body.paperId            - Paper UUID.
+ * @param {string}  req.body.decision           - "Accepted" | "Rejected" | "Modification Required"
+ * @param {string}  [req.body.commentsForAuthors]
+ * @param {number}  [req.body.plagiarismScore]
+ * @returns {200} Updated paper object.
+ * @returns {400} Validation error.
+ * @returns {404} Paper not found.
+ * @returns {500} Server error.
  */
 export const updateFinalDecisionController = async (req, res) => {
   try {
@@ -520,20 +589,19 @@ export const updateFinalDecisionController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid decision value." });
     }
 
-    // Build the update payload
     const updateFields = { final_decision: decision };
 
-    // When modification is required, reset status so the author can resubmit
+    // When modification is required, reset the paper status so the author can resubmit.
     if (decision === "Modification Required") {
       updateFields.status = "pending";
     }
 
-    // Persist organizer comments to the DB if provided (optional)
+    // Persist organizer comments if provided.
     if (commentsForAuthors && commentsForAuthors.trim() !== "") {
       updateFields.organizer_comments_for_authors = commentsForAuthors.trim();
     }
 
-    // Persist the plagiarism score if provided and valid
+    // Persist the plagiarism score if provided and valid.
     if (plagiarismScore !== undefined && plagiarismScore !== null) {
       const score = parseFloat(plagiarismScore);
       if (!isNaN(score) && score >= 0 && score <= 100) {
@@ -554,7 +622,7 @@ export const updateFinalDecisionController = async (req, res) => {
       return res.status(404).json({ success: false, message: "Paper not found." });
     }
 
-    // Email configuration for authors
+    // Map each decision to the appropriate author notification email content.
     const emailConfig = {
       Accepted: {
         subject: "Congratulations! Your Paper Has Been Accepted",
@@ -578,7 +646,7 @@ export const updateFinalDecisionController = async (req, res) => {
 
     const cfg = emailConfig[decision];
     if (cfg) {
-      // Append organizer comments to the email body if present
+      // Append organizer comments to the email body if they were provided.
       const emailBodyText =
         commentsForAuthors && commentsForAuthors.trim() !== ""
           ? `${cfg.bodyText}\n\nOrganizer feedback: ${commentsForAuthors.trim()}`
@@ -603,7 +671,19 @@ export const updateFinalDecisionController = async (req, res) => {
 };
 
 /**
- * Manually assigns one or more reviewers to a paper.
+ * Manually assigns one or more reviewers to a specific paper.
+ * A paper may have at most 3 reviewers assigned in total.
+ * A plagiarism score must be on record (or provided in this request) before assignment.
+ *
+ * @route POST /api/organizer/assign-paper-manual
+ * @param {string}   req.body.paperId       - Paper UUID.
+ * @param {string}   req.body.conferenceId  - Conference UUID.
+ * @param {string[]} req.body.reviewerIds   - Array of reviewer user IDs (max 3).
+ * @param {number}   [req.body.plagiarismScore] - Required if no score is on record.
+ * @returns {200} Assignment results.
+ * @returns {400} Validation error or paper already at max reviewers.
+ * @returns {404} Paper not found.
+ * @returns {500} Server error.
  */
 export const manuallyAssignPaperController = async (req, res) => {
   try {
@@ -639,6 +719,7 @@ export const manuallyAssignPaperController = async (req, res) => {
 
     let resolvedPlagiarismScore = paper.organizer_plagiarism_score;
 
+    // If no plagiarism score is on record, the caller must provide one now.
     if (resolvedPlagiarismScore === null || resolvedPlagiarismScore === undefined) {
       if (plagiarismScore === undefined || plagiarismScore === null || plagiarismScore === "") {
         return res.status(400).json({
@@ -751,6 +832,18 @@ export const manuallyAssignPaperController = async (req, res) => {
 
 /**
  * Sets or updates the technical review weightage for a conference.
+ * All five criteria must be provided and must sum to exactly 100.
+ *
+ * @route POST /api/organizer/set-technical-weightage
+ * @param {string} req.body.conferenceId
+ * @param {number} req.body.originality
+ * @param {number} req.body.technicalQuality
+ * @param {number} req.body.significance
+ * @param {number} req.body.clarity
+ * @param {number} req.body.relevance
+ * @returns {200} Updated weightage record.
+ * @returns {400} Validation error.
+ * @returns {500} Server error.
  */
 export const setTechnicalWeightageController = async (req, res) => {
   try {
@@ -760,7 +853,13 @@ export const setTechnicalWeightageController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Conference ID is required." });
     }
 
-    if (originality === undefined || technicalQuality === undefined || significance === undefined || clarity === undefined || relevance === undefined) {
+    if (
+      originality === undefined ||
+      technicalQuality === undefined ||
+      significance === undefined ||
+      clarity === undefined ||
+      relevance === undefined
+    ) {
       return res.status(400).json({ success: false, message: "All weightage fields are required." });
     }
 
@@ -794,6 +893,12 @@ export const setTechnicalWeightageController = async (req, res) => {
 
 /**
  * Returns the technical weightage settings for a conference.
+ * Falls back to default weights if none have been configured.
+ *
+ * @route GET /api/organizer/get-technical-weightage/:conferenceId
+ * @param {string} req.params.conferenceId - Conference UUID.
+ * @returns {200} Weightage object.
+ * @returns {500} Server error.
  */
 export const getTechnicalWeightageController = async (req, res) => {
   try {
@@ -809,6 +914,7 @@ export const getTechnicalWeightageController = async (req, res) => {
       .eq("conference_id", conferenceId)
       .maybeSingle();
 
+    // Return sensible defaults if no custom weightage has been configured yet.
     const result = weightage || {
       originality: 30,
       technical_quality: 25,
@@ -829,6 +935,12 @@ export const getTechnicalWeightageController = async (req, res) => {
 
 /**
  * Returns reviewer assignment counts and reviewer details for a set of papers.
+ *
+ * @route POST /api/organizer/papers/assigned-reviewers
+ * @param {string[]} req.body.paperIds - Array of paper UUIDs.
+ * @returns {200} Map of paperId -> { assignedCount, reviewers }.
+ * @returns {400} Invalid paperIds array.
+ * @returns {500} Server error.
  */
 export const getAssignmentsByPaperController = async (req, res) => {
   try {
@@ -847,6 +959,7 @@ export const getAssignmentsByPaperController = async (req, res) => {
       return res.status(500).json({ success: false, message: "An error occurred while fetching assigned reviewers." });
     }
 
+    // Build a map indexed by paper_id for O(1) lookup on the frontend.
     const assignmentsByPaper = {};
     (assignments || []).forEach(({ paper_id, reviewer_id, users }) => {
       if (!assignmentsByPaper[paper_id]) {
@@ -872,6 +985,12 @@ export const getAssignmentsByPaperController = async (req, res) => {
 
 /**
  * Returns all accepted papers for a conference.
+ * Used as the data source for proceedings PDF generation.
+ *
+ * @route GET /api/organizer/get-proceedings-data/:conferenceId
+ * @param {string} req.params.conferenceId - Conference UUID.
+ * @returns {200} { papers: Array }.
+ * @returns {500} Server error.
  */
 export const fetchAcceptedPapersController = async (req, res) => {
   try {
@@ -902,15 +1021,24 @@ export const fetchAcceptedPapersController = async (req, res) => {
 };
 
 /**
- * Returns all conferences where the user has the 'organizer' role.
+ * Returns all conferences where the authenticated user holds the organizer role.
+ *
+ * SECURITY FIX: The userId is now read from the verified JWT token (req.user)
+ * instead of req.params. This prevents a logged-in user from fetching another
+ * user's conference list by supplying a different userId in the URL.
+ *
+ * The req.params.userId is still accepted for backward compatibility with the
+ * frontend URL structure (/api/organizer/conferences/:userId), but the actual
+ * database query always uses the token's userId.
+ *
+ * @route GET /api/organizer/conferences/:userId
+ * @returns {200} { conferences: Array }.
+ * @returns {500} Server error.
  */
 export const getOrganizerConferencesController = async (req, res) => {
   try {
-    const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "User ID is required." });
-    }
+    // Always use the verified JWT user ID — never trust req.params for data scoping.
+    const userId = req.user._id || req.user.id;
 
     const { data, error } = await supabase
       .from("user_conference_roles")
@@ -936,6 +1064,16 @@ export const getOrganizerConferencesController = async (req, res) => {
 
 /**
  * Generates a proceedings PDF for a conference containing all accepted papers.
+ * Accepts an optional intro image via multipart upload (PNG or JPEG only).
+ * PDF generation jobs are queued with a concurrency limit of 2 to prevent
+ * memory spikes when multiple organizers generate proceedings simultaneously.
+ *
+ * @route POST /api/organizer/upload-proceedings/:conferenceId
+ * @param {string} req.params.conferenceId - Conference UUID.
+ * @param {File}   [req.file]              - Optional intro image (PNG or JPEG).
+ * @returns {200} { url: string } — public URL of the uploaded PDF.
+ * @returns {404} Conference not found.
+ * @returns {500} Generation or upload error.
  */
 export const proceedingsPdfGenerationController = async (req, res) => {
   const { conferenceId } = req.params;
@@ -972,6 +1110,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
       const PAGE_H = 842;
       const MARGIN = 50;
 
+      // Build cover page.
       const coverPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
       coverPage.drawRectangle({ x: 0, y: PAGE_H - 160, width: PAGE_W, height: 160, color: TEAL });
 
@@ -989,7 +1128,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
       const detailLines = [
         conference.venue ? `Venue: ${conference.venue}` : null,
         conference.city && conference.country ? `Location: ${conference.city}, ${conference.country}` : null,
-        conference.start_date ? `Date: ${conference.start_date}${conference.end_date ? ` – ${conference.end_date}` : ""}` : null,
+        conference.start_date ? `Date: ${conference.start_date}${conference.end_date ? ` - ${conference.end_date}` : ""}` : null,
       ].filter(Boolean);
 
       let dy = PAGE_H - 290;
@@ -998,6 +1137,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
         dy -= 20;
       }
 
+      // Embed the optional intro image if one was uploaded.
       if (req.file) {
         try {
           const introImageBytes = req.file.buffer;
@@ -1010,37 +1150,65 @@ export const proceedingsPdfGenerationController = async (req, res) => {
           }
           if (embeddedImage) {
             const imgDims = embeddedImage.scaleToFit(PAGE_W - MARGIN * 2, 200);
-            coverPage.drawImage(embeddedImage, { x: MARGIN, y: dy - imgDims.height - 20, width: imgDims.width, height: imgDims.height });
+            coverPage.drawImage(embeddedImage, {
+              x: MARGIN,
+              y: dy - imgDims.height - 20,
+              width: imgDims.width,
+              height: imgDims.height,
+            });
           }
-        } catch (_) {}
+        } catch (_) {
+          // Image embedding failure must not abort the entire generation.
+        }
       }
 
       coverPage.drawText(`Total Accepted Papers: ${(papers || []).length}`, { x: MARGIN, y: 100, size: 12, font: helveticaBold, color: TEAL });
       coverPage.drawText(`Generated: ${new Date().toLocaleDateString()}`, { x: MARGIN, y: 70, size: 10, font: helvetica, color: GRAY });
 
+      // Build one page per accepted paper.
       for (const paper of papers || []) {
         const paperPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
         paperPage.drawRectangle({ x: 0, y: PAGE_H - 60, width: PAGE_W, height: 60, color: LIGHT_GRAY });
         paperPage.drawText("ConForum Proceedings", { x: MARGIN, y: PAGE_H - 38, size: 10, font: helvetica, color: GRAY });
 
         const titleText = paper.title || "Untitled Paper";
-        paperPage.drawText(titleText, { x: MARGIN, y: PAGE_H - 110, size: 14, font: helveticaBold, color: DARK, maxWidth: PAGE_W - MARGIN * 2, lineHeight: 20 });
+        paperPage.drawText(titleText, {
+          x: MARGIN, y: PAGE_H - 110, size: 14, font: helveticaBold, color: DARK,
+          maxWidth: PAGE_W - MARGIN * 2, lineHeight: 20,
+        });
 
         const authorsText = (paper.paper_authors || [])
           .map((pa) => `${pa.authors?.first_name || ""} ${pa.authors?.last_name || ""}`.trim())
           .filter(Boolean)
           .join(", ");
 
-        paperPage.drawText(authorsText || "Author(s) not listed", { x: MARGIN, y: PAGE_H - 160, size: 10, font: helvetica, color: TEAL, maxWidth: PAGE_W - MARGIN * 2 });
+        paperPage.drawText(authorsText || "Author(s) not listed", {
+          x: MARGIN, y: PAGE_H - 160, size: 10, font: helvetica, color: TEAL,
+          maxWidth: PAGE_W - MARGIN * 2,
+        });
 
-        const affiliations = (paper.paper_authors || []).map((pa) => pa.authors?.affiliation).filter(Boolean).join("; ");
+        const affiliations = (paper.paper_authors || [])
+          .map((pa) => pa.authors?.affiliation)
+          .filter(Boolean)
+          .join("; ");
+
         if (affiliations) {
-          paperPage.drawText(affiliations, { x: MARGIN, y: PAGE_H - 180, size: 9, font: helvetica, color: GRAY, maxWidth: PAGE_W - MARGIN * 2 });
+          paperPage.drawText(affiliations, {
+            x: MARGIN, y: PAGE_H - 180, size: 9, font: helvetica, color: GRAY,
+            maxWidth: PAGE_W - MARGIN * 2,
+          });
         }
 
-        paperPage.drawLine({ start: { x: MARGIN, y: PAGE_H - 195 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - 195 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
+        paperPage.drawLine({
+          start: { x: MARGIN, y: PAGE_H - 195 },
+          end: { x: PAGE_W - MARGIN, y: PAGE_H - 195 },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+
         paperPage.drawText("Abstract", { x: MARGIN, y: PAGE_H - 220, size: 11, font: helveticaBold, color: TEAL });
 
+        // Word-wrap the abstract manually since pdf-lib does not support it natively.
         const abstract = paper.abstract || "No abstract provided.";
         const abstractWords = abstract.split(" ");
         let line = "";
@@ -1064,7 +1232,10 @@ export const proceedingsPdfGenerationController = async (req, res) => {
 
         if (paper.keywords && paper.keywords.length > 0) {
           paperPage.drawText("Keywords:", { x: MARGIN, y: yPos - 10, size: 10, font: helveticaBold, color: DARK });
-          paperPage.drawText(paper.keywords.join(", "), { x: MARGIN + 65, y: yPos - 10, size: 10, font: helvetica, color: GRAY, maxWidth: PAGE_W - MARGIN * 2 - 65 });
+          paperPage.drawText(paper.keywords.join(", "), {
+            x: MARGIN + 65, y: yPos - 10, size: 10, font: helvetica, color: GRAY,
+            maxWidth: PAGE_W - MARGIN * 2 - 65,
+          });
         }
       }
 
@@ -1081,6 +1252,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
 
       const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/paper-submissions/${uploadData.path}`;
 
+      // Persist the proceedings URL on the conference record.
       await supabase.from("conferences").update({ proceedings_pdf_url: publicUrl }).eq("id", conferenceId);
 
       return res.status(200).json({
@@ -1089,7 +1261,11 @@ export const proceedingsPdfGenerationController = async (req, res) => {
         data: { url: publicUrl },
       });
     } catch (error) {
-      return res.status(500).json({ success: false, message: "Failed to generate proceedings PDF.", data: { error: error.message } });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate proceedings PDF.",
+        data: { error: error.message },
+      });
     }
   });
 };

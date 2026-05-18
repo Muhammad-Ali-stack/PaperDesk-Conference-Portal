@@ -25,7 +25,7 @@ const AllConferences = () => {
   useEffect(() => {
     const fetchConferences = async () => {
       try {
-        const response = await axios.get("/api/conference/all-reg-conferences");
+       const response = await axios.get("/api/conference/all-conferences");
         const data = response.data;
         setConferences(isAdmin ? data : data.filter((c) => c.status === "approved"));
       } catch (error) {

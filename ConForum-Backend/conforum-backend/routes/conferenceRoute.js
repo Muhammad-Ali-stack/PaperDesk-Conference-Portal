@@ -25,10 +25,16 @@ import supabase from "../config/supabase.js";
 
 const router = express.Router();
 
+// ─── Public routes (no auth required) ────────────────────────────────────────
+
+/** GET /all-conferences — Public conference listing. */
+router.get("/all-conferences", getApprovedConferencesController);
+
+// ─── Protected routes ─────────────────────────────────────────────────────────
+
 /**
  * POST /create-conference
- * Accessible by admins (role === 1) and organizers (any conference).
- * Admins bypass the organizer role check; all others are validated via isOrganizerRole.
+ * Admins (role === 1) and organizers only.
  */
 router.post("/create-conference", requireLogin, async (req, res, next) => {
   try {
@@ -42,13 +48,36 @@ router.post("/create-conference", requireLogin, async (req, res, next) => {
   }
 }, createConferenceController);
 
-/** POST /send-invite — Admin only. Sends an organizer invitation email. */
+/** POST /send-invite — Admin only. */
 router.post("/send-invite", requireLogin, isAdmin, sendOrganizerInviteController);
+
+/** GET /get-conference/:id — Protected: used by organizer/author dashboards. */
+router.get("/get-conference/:id", requireLogin, getConferenceController);
+
+/** GET /rejected-conferences — Admin only. */
+router.get("/rejected-conferences", requireLogin, isAdmin, getRejectedConferencesController);
+
+/** GET /all-reg-conferences — Admin only. */
+router.get("/all-reg-conferences", requireLogin, isAdmin, getAllConferencesController);
+
+/** GET /pending — Admin only. */
+router.get("/pending", requireLogin, isAdmin, getPendingConferencesController);
+
+/** PUT /approve/:id — Admin only. */
+router.put("/approve/:id", requireLogin, isAdmin, approveConferenceController);
+
+/** PUT /reject/:id — Admin only. */
+router.put("/reject/:id", requireLogin, isAdmin, rejectConferenceController);
+
+/** PUT /update-conference/:id — Organizer only. */
+router.put("/update-conference/:id", requireLogin, isOrganizerRole, updateConferenceController);
+
+/** DELETE /delete-conference/:id — Admin only. */
+router.delete("/delete-conference/:id", requireLogin, isAdmin, deleteConferenceController);
 
 /**
  * PUT /:id/max-resubmissions
- * Sets the per-paper resubmission limit for a conference.
- * Accessible by the admin (role === 1) or the conference's own organizer.
+ * Admin or the conference's own organizer only.
  */
 router.put("/:id/max-resubmissions", requireLogin, async (req, res, next) => {
   try {
@@ -68,43 +97,15 @@ router.put("/:id/max-resubmissions", requireLogin, async (req, res, next) => {
   }
 }, setMaxResubmissionsController);
 
-/** GET /get-conference/:id — Returns a single conference with its papers. */
-router.get("/get-conference/:id", getConferenceController);
-
-/** GET /all-conferences — Returns all approved conferences. */
-router.get("/all-conferences", getApprovedConferencesController);
-
-/** GET /rejected-conferences — Returns all rejected conferences. */
-router.get("/rejected-conferences", getRejectedConferencesController);
-
-/** GET /all-reg-conferences — Returns every conference regardless of status. */
-router.get("/all-reg-conferences", getAllConferencesController);
-
-/** PUT /update-conference/:id — Updates specified fields of a conference. */
-router.put("/update-conference/:id", updateConferenceController);
-
-/** DELETE /delete-conference/:id — Permanently deletes a conference. */
-router.delete("/delete-conference/:id", deleteConferenceController);
-
-/** PUT /approve/:id — Admin only. Approves a pending conference. */
-router.put("/approve/:id", approveConferenceController);
-
-/** PUT /reject/:id — Admin only. Rejects a pending conference. */
-router.put("/reject/:id", rejectConferenceController);
-
-/** GET /pending — Returns all conferences awaiting admin approval. */
-router.get("/pending", getPendingConferencesController);
-
-/**
- * GET /:conferenceId/papers/:paperId/submission-status
- * Returns resubmission quota info for a specific paper. Requires login.
- */
+/** GET /:conferenceId/papers/:paperId/submission-status */
 router.get("/:conferenceId/papers/:paperId/submission-status", requireLogin, getSubmissionStatusController);
 
-/** GET /:conferenceId/papers — Returns all papers for a conference with reviewer status. */
-router.get("/:conferenceId/papers", getPapersByConferenceController);
+/** GET /:conferenceId/papers — Organizer dashboard. */
+router.get("/:conferenceId/papers", requireLogin, getPapersByConferenceController);
 
-/** GET /:acronym — Returns the conference name for a given acronym (public). */
+// ─── Wildcard route LAST (must always be at the bottom) ──────────────────────
+
+/** GET /:acronym — Public: resolves conference name from acronym (paper submission page). */
 router.get("/:acronym", getConferenceByAcronymController);
 
 export default router;

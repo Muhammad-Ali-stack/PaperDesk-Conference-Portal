@@ -47,6 +47,8 @@ const SectionLabel = ({ label, expanded }) =>
 
 // ---------------------------------------------------------------------------
 // getInitialExpanded
+// Reads the last saved sidebar state from localStorage.
+// Defaults to expanded (true) if nothing is stored.
 // ---------------------------------------------------------------------------
 const getInitialExpanded = () => {
   try {
@@ -61,56 +63,34 @@ const getInitialExpanded = () => {
 // UserSidebar
 // ---------------------------------------------------------------------------
 const UserSidebar = () => {
-  const [auth, setAuth, rolesLoaded] = useAuth();
+  // fetchRoles is pulled from the auth context so we reuse the same
+  // function that updates auth state AND localStorage in one place.
+  const [auth, , rolesLoaded, fetchRoles] = useAuth();
   const [expanded, setExpanded] = useState(getInitialExpanded);
 
   // ---------------------------------------------------------------------------
-  // Listen for a "roles-updated" custom event so any part of the app can
-  // trigger a sidebar refresh by dispatching:
+  // Listen for the "roles-updated" custom event.
+  // Any part of the app can trigger a sidebar refresh by dispatching:
   //   window.dispatchEvent(new CustomEvent("roles-updated"))
   //
-  // This is the same pattern already used for "conference-created".
-  // Fire this event wherever you update a user's role (e.g. after the API
-  // call that assigns the role succeeds).
+  // When the event fires, we call fetchRoles from the auth context directly.
+  // This ensures auth state and localStorage are both updated, so the
+  // sidebar re-renders without requiring a logout/login cycle.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    const handleRolesUpdated = async () => {
-      // Re-fetch the latest user profile / roles from your auth context.
-      // We call the same refresh mechanism your Auth context exposes.
-      // If your context exposes a refreshUser / refreshRoles function, call it here.
-      // If it doesn't, we force a re-fetch by dispatching a storage event trick
-      // or by using the setter — see the note below.
-      if (typeof setAuth === "function") {
-        // Ask the Auth context to re-fetch fresh user data.
-        // This works if your Auth context's setter triggers a reload.
-        // Most setAuth implementations just replace state, so we use the
-        // dedicated refresh approach below instead.
-      }
-
-      // Safest universal approach: reload the roles from the API directly
-      // and merge them into the existing auth state.
-      try {
-        const res = await fetch("/api/user/roles", { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          // Merge the fresh roles into the existing auth state so the
-          // sidebar re-renders with the latest roles immediately.
-          setAuth((prev) => ({
-            ...prev,
-            roles: data.roles ?? data.data?.roles ?? prev.roles,
-          }));
-        }
-      } catch (err) {
-        console.error("Failed to refresh roles:", err);
+    const handleRolesUpdated = () => {
+      if (auth?.user?._id) {
+        // Use the context's own fetchRoles so state + localStorage stay in sync.
+        fetchRoles(auth.user._id);
       }
     };
 
     window.addEventListener("roles-updated", handleRolesUpdated);
     return () => window.removeEventListener("roles-updated", handleRolesUpdated);
-  }, [setAuth]);
+  }, [auth?.user?._id, fetchRoles]);
 
   // ---------------------------------------------------------------------------
-  // Toggle sidebar width and persist to localStorage.
+  // Toggle sidebar width and persist the preference to localStorage.
   // ---------------------------------------------------------------------------
   const toggleExpanded = () => {
     setExpanded((prev) => {
@@ -125,7 +105,9 @@ const UserSidebar = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Role helper — guards against rendering before roles have loaded.
+  // Role helper.
+  // Guards against rendering role-specific sections before roles have loaded,
+  // which would cause a flash of missing content on page refresh.
   // ---------------------------------------------------------------------------
   const hasRole = (role) =>
     rolesLoaded && auth?.roles?.some((r) => r.role === role);
@@ -165,13 +147,13 @@ const UserSidebar = () => {
       {/* Navigation */}
       <nav className="flex-1 p-2 overflow-y-auto overflow-x-hidden space-y-0.5 custom-scrollbar">
 
-        {/* General — always visible */}
+        {/* General -- always visible to all logged-in users */}
         <SectionLabel label="General" expanded={expanded} />
         <NavItem to="/userdashboard/user-dashboard" icon={LayoutDashboard} label="Dashboard"      expanded={expanded} />
         <NavItem to="/userdashboard/user-profile"   icon={User}            label="Profile"        expanded={expanded} />
         <NavItem to="/userdashboard/roles"          icon={Settings}        label="My Conferences" expanded={expanded} />
 
-        {/* Organizer */}
+        {/* Organizer -- only shown when user has the organizer role */}
         {hasRole("organizer") && (
           <>
             <SectionLabel label="Editor" expanded={expanded} />
@@ -194,7 +176,7 @@ const UserSidebar = () => {
           </>
         )}
 
-        {/* Reviewer */}
+        {/* Reviewer -- only shown when user has the reviewer role */}
         {hasRole("reviewer") && (
           <>
             <SectionLabel label="Reviewer" expanded={expanded} />
@@ -203,7 +185,10 @@ const UserSidebar = () => {
           </>
         )}
 
-        {/* Author */}
+        {/* Author -- only shown when user has the author role.
+            This section appears automatically after a paper is submitted
+            because submitForm dispatches "roles-updated" which calls
+            fetchRoles and updates auth state without a re-login. */}
         {hasRole("author") && (
           <>
             <SectionLabel label="Author" expanded={expanded} />

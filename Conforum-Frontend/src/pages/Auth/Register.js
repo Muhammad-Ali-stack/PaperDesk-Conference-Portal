@@ -43,6 +43,7 @@ const Register = () => {
   const navigate = useNavigate();
   const passwordValue = watch("password", "");
 
+  // ✅ Single useEffect — fetches invite details AND expertise in one call
   useEffect(() => {
     if (!token) return;
     const fetchInvite = async () => {
@@ -54,6 +55,7 @@ const Register = () => {
           setInviteRole(inviteData.role);
           setInviteConferenceId(inviteData.conferenceId || "");
           setInviteConferenceName(inviteData.conferenceName || "");
+          setExpertiseOptions(inviteData.expertise || []); // ✅ comes from backend now
           setValue("email", inviteData.email);
           setTokenValid(true);
         } else {
@@ -68,18 +70,8 @@ const Register = () => {
     fetchInvite();
   }, [token, setValue]);
 
-  useEffect(() => {
-    if (!inviteConferenceId || inviteRole !== "reviewer") return;
-    const fetchConference = async () => {
-      try {
-        const res = await axios.get(`/api/conference/get-conference/${inviteConferenceId}`);
-        setExpertiseOptions(res.data.expertise || []);
-      } catch {
-        toast.error("Could not load conference expertise options.");
-      }
-    };
-    fetchConference();
-  }, [inviteConferenceId, inviteRole]);
+  // ✅ Second useEffect calling /api/conference/get-conference/:id is REMOVED
+  //    (it required auth which the user doesn't have yet on this page)
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -238,7 +230,7 @@ const Register = () => {
                     id="email"
                     type="email"
                     placeholder="you@example.com"
-                    disabled={!!inviteEmail}   // LOCKED when invited
+                    disabled={!!inviteEmail}
                     {...register("email", {
                       required: "Email address is required.",
                       pattern: {

@@ -1,14 +1,19 @@
 -- ============================================================
 -- ConForum -- Supabase PostgreSQL Schema
--- Version: 2.1 (added organizer_comments_for_authors)
+-- Version: 2.2
 --
--- Changelog from v2.0:
---   - research_papers: added organizer_comments_for_authors (TEXT)
---     Stores the organizer's optional feedback to authors when
---     the organizer reviews a paper directly (bypassing reviewers)
---     via the "Review Myself" flow in AssignPapersPage.
---     Saved by updateFinalDecisionController and visible to
---     authors after the decision is published.
+-- Changelog from v2.1:
+--   - conferences: organizer_id ON DELETE SET NULL already
+--     correct. No structural change needed for the admin
+--     organizer assignment fix — that is handled entirely
+--     in application logic (createConferenceController).
+--   - research_papers: ON DELETE SET NULL on conference_id
+--     is intentional. Application logic in
+--     deleteConferenceController now explicitly deletes
+--     papers and their storage files before deleting the
+--     conference, so orphaned papers never occur in practice.
+--   - No new columns in this version. All fixes in v2.2 are
+--     application-layer only (controller + frontend changes).
 --
 -- How to use:
 --   Run this entire file in the Supabase SQL Editor on a fresh
@@ -31,8 +36,8 @@
 -- TABLE: users
 -- Core user accounts for authors, organizers, and admins.
 -- role = 0 means a regular user; role = 1 means admin.
--- recovery_key is a plain-text phrase set at registration and
--- used as the second factor in the forgot-password flow
+-- recovery_key is a bcrypt-hashed phrase set at registration
+-- and used as the second factor in the forgot-password flow
 -- (no OTP required for password reset).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
@@ -53,8 +58,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- TABLE: reviewers
 -- Separate reviewer accounts created through the legacy
 -- reviewer-register flow (reviewerController.js).
--- The main user flow uses user_conference_roles instead,
--- so this table is kept for backward compatibility.
+-- The main invitation flow uses user_conference_roles instead,
+-- so this table will always be empty in production and is kept
+-- only for backward compatibility. Do not use for new features.
 -- expertise is an array of keyword strings.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS reviewers (
@@ -72,6 +78,11 @@ CREATE TABLE IF NOT EXISTS reviewers (
 -- stored in organizer_id (FK to users) as well as denormalised
 -- name/email columns so the organizer info is readable even if
 -- the user account is later deleted.
+--
+-- When an admin creates a conference they must supply an
+-- organizerEmail in the request body. createConferenceController
+-- resolves that email to a user and stores that user's id/name/
+-- email here — never the admin's own id.
 --
 -- mode controls the review blind policy:
 --   "single-blind" | "double-blind" | "open"
@@ -111,7 +122,9 @@ CREATE TABLE IF NOT EXISTS conferences (
   status               TEXT        NOT NULL DEFAULT 'pending',
   -- Auto-generated public URL for paper submissions
   submission_link      TEXT,
-  -- Denormalised organizer fields so info is readable without a join
+  -- Denormalised organizer fields so info is readable without a join.
+  -- ON DELETE SET NULL so conference row survives if organizer account
+  -- is deleted — organizer_name and organizer_email still readable.
   organizer_id         UUID        REFERENCES users (id) ON DELETE SET NULL,
   organizer_name       TEXT,
   organizer_email      TEXT,
@@ -135,6 +148,11 @@ CREATE TABLE IF NOT EXISTS conferences (
 --   invitation but has not yet created their conference.
 --   Once the conference is created, the NULL row is replaced by
 --   a row with the real conference_id.
+--
+-- When an admin creates a conference with an organizerEmail,
+--   createConferenceController inserts a row here for the
+--   resolved organizer user directly (no NULL placeholder needed
+--   because the conference already exists at insert time).
 --
 -- expertise is only populated when role = 'reviewer'.
 --
@@ -170,7 +188,7 @@ CREATE TABLE IF NOT EXISTS user_conference_roles (
 -- never exposed in the URL.
 --
 -- user_id is populated when an existing user responds to an
--- invitation via respondToInvitationController -- it is NULL
+-- invitation via respondToInvitationController — it is NULL
 -- for recipients who have not yet registered.
 --
 -- status lifecycle: "pending" -> "accepted" | "declined"
@@ -217,7 +235,8 @@ CREATE TABLE IF NOT EXISTS login_otps (
 -- TABLE: authors
 -- Author metadata collected at paper submission time.
 -- An author record is reused across submissions if the same
--- email already exists (upsert by email in submitPaperController).
+-- email already exists (bulk-fetch + insert in
+-- submitPaperController avoids N+1 queries).
 --
 -- user_id links the author record back to the registered user
 -- who submitted the paper. It is NULL for co-authors who do
@@ -250,7 +269,7 @@ CREATE TABLE IF NOT EXISTS authors (
 --   goes through "assigned" -> "reviewed" again.
 --
 -- final_decision values (set by organizer):
---   "Accepted" | "Rejected" | "Modification Required" | NULL (pending)
+--   "Accepted" | "Rejected" | "Modification Required" | NULL
 --   When "Modification Required" the status is also reset to
 --   "pending" so the author can resubmit.
 --
@@ -264,7 +283,9 @@ CREATE TABLE IF NOT EXISTS authors (
 --
 -- organizer_plagiarism_score: a 0-100 numeric score manually
 --   entered by the organizer. Papers without this score cannot
---   be auto-assigned to reviewers.
+--   be auto-assigned to reviewers (enforced in
+--   assignPapersToReviewersController and
+--   manuallyAssignPaperController).
 --
 -- organizer_comments_for_authors: optional free-text feedback
 --   written by the organizer when reviewing a paper directly
@@ -273,6 +294,12 @@ CREATE TABLE IF NOT EXISTS authors (
 --
 -- resubmission_count: incremented each time the author
 --   resubmits. Checked against conferences.max_resubmissions.
+--
+-- conference_id uses ON DELETE SET NULL intentionally.
+--   deleteConferenceController explicitly deletes all papers
+--   (and their storage files) before deleting the conference,
+--   so this column should never actually become NULL in
+--   practice. The SET NULL is a safety net only.
 --
 -- conference_name / conference_acronym: denormalised so that
 --   paper listings remain readable after a conference is renamed
@@ -285,7 +312,7 @@ CREATE TABLE IF NOT EXISTS research_papers (
   keywords                        TEXT[]      DEFAULT '{}',
   -- Supabase Storage public URL for the uploaded PDF
   paper_file_path                 TEXT,
-  -- NULL when the parent conference is deleted (ON DELETE SET NULL)
+  -- SET NULL safety net; controller deletes papers before conference
   conference_id                   UUID        REFERENCES conferences (id) ON DELETE SET NULL,
   -- Denormalised conference identifiers for display without a join
   conference_name                 TEXT,
@@ -301,9 +328,8 @@ CREATE TABLE IF NOT EXISTS research_papers (
   plagiarism_report               JSONB       NOT NULL DEFAULT '{"score": 0, "isAIGenerated": false}',
   -- Manually entered by the organizer before reviewer assignment (0-100)
   organizer_plagiarism_score      NUMERIC     DEFAULT NULL,
-  -- Optional organizer feedback shown to authors after the decision is published.
-  -- Populated when the organizer uses the "Review Myself" flow in AssignPapersPage
-  -- (updateFinalDecisionController). NULL when paper went through normal reviewer flow.
+  -- Optional organizer feedback shown to authors after the decision
+  -- is published. NULL when paper went through normal reviewer flow.
   organizer_comments_for_authors  TEXT        DEFAULT NULL,
   -- How many times this paper has been resubmitted
   resubmission_count              INTEGER     NOT NULL DEFAULT 0,
@@ -333,8 +359,13 @@ CREATE TABLE IF NOT EXISTS paper_authors (
 -- Business rule enforced in application logic:
 --   A maximum of 3 reviewers may be assigned per paper.
 --
+-- reviewer_id references users (not reviewers) because all
+-- invited reviewers are stored in the users table via the
+-- invitation flow. The legacy reviewers table is not used.
+--
 -- assigned_at records when the assignment was created, which
--- is surfaced in the reviewer portal (getAssignedPapersForReviewerController).
+-- is surfaced in the reviewer portal
+-- (getAssignedPapersForReviewerController).
 --
 -- The unique constraint on (paper_id, reviewer_id) prevents
 -- the same reviewer from being assigned to the same paper twice.
@@ -342,7 +373,7 @@ CREATE TABLE IF NOT EXISTS paper_authors (
 CREATE TABLE IF NOT EXISTS assignments (
   id             UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   paper_id       UUID        NOT NULL REFERENCES research_papers (id) ON DELETE CASCADE,
-  -- FK to users (not reviewers) because reviewers log in as users
+  -- FK to users (not reviewers) — invited reviewers live in users table
   reviewer_id    UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   conference_id  UUID        NOT NULL REFERENCES conferences (id) ON DELETE CASCADE,
   assigned_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -365,8 +396,8 @@ CREATE TABLE IF NOT EXISTS assignments (
 -- server-side using the conference's technical_weightage settings:
 --   (originality * w_orig + technical_quality * w_tq + ...) / 100
 --
--- overall_recommendation examples:
---   "Accept" | "Reject" | "Major Revision" | "Minor Revision"
+-- overall_recommendation values used in the app:
+--   "Accept" | "Accept with minor correction" | "Reject"
 --
 -- comments_for_authors: visible to the paper authors.
 -- comments_for_organizers: visible only to the organizer.
@@ -376,13 +407,13 @@ CREATE TABLE IF NOT EXISTS reviews (
   paper_id                 UUID        NOT NULL REFERENCES research_papers (id) ON DELETE CASCADE,
   -- FK to users (the reviewer's main user account)
   reviewer_id              UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  -- Reviewer-supplied integer scores (typically 1-10)
+  -- Reviewer-supplied integer scores (1-10)
   originality              INTEGER,
   technical_quality        INTEGER,
   significance             INTEGER,
   clarity                  INTEGER,
   relevance                INTEGER,
-  -- "Accept" | "Reject" | "Major Revision" | "Minor Revision"
+  -- "Accept" | "Accept with minor correction" | "Reject"
   overall_recommendation   TEXT,
   -- Shown to authors
   comments_for_authors     TEXT,
@@ -397,7 +428,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 -- ============================================================
 -- TABLE: technical_weightage
 -- Per-conference weighting for the five review criteria.
--- Weights must sum to 100 (enforced in application logic).
+-- Weights must sum to 100 (enforced in application logic by
+-- setTechnicalWeightageController).
 -- Used by submitReviewFormController to compute
 -- technical_confidence from the raw reviewer scores.
 --
@@ -423,7 +455,7 @@ CREATE TABLE IF NOT EXISTS technical_weightage (
 -- Named with a consistent "idx_<table>_<column(s)>" convention.
 -- ============================================================
 
--- user_conference_roles -- frequently filtered by all three columns
+-- user_conference_roles — frequently filtered by all three columns
 CREATE INDEX IF NOT EXISTS idx_ucr_user
   ON user_conference_roles (user_id);
 
@@ -433,19 +465,19 @@ CREATE INDEX IF NOT EXISTS idx_ucr_conference
 CREATE INDEX IF NOT EXISTS idx_ucr_role
   ON user_conference_roles (role);
 
--- research_papers -- most queries filter by conference
+-- research_papers — most queries filter by conference
 CREATE INDEX IF NOT EXISTS idx_papers_conference
   ON research_papers (conference_id);
 
--- research_papers -- status-filtered queries (pending, assigned, etc.)
+-- research_papers — status-filtered queries (pending, assigned, etc.)
 CREATE INDEX IF NOT EXISTS idx_papers_status
   ON research_papers (status);
 
--- research_papers -- decision-filtered queries (accepted papers for proceedings)
+-- research_papers — decision-filtered queries (accepted papers for proceedings)
 CREATE INDEX IF NOT EXISTS idx_papers_final_decision
   ON research_papers (final_decision);
 
--- assignments -- join patterns from all three directions
+-- assignments — join patterns from all three directions
 CREATE INDEX IF NOT EXISTS idx_assignments_paper
   ON assignments (paper_id);
 
@@ -455,44 +487,44 @@ CREATE INDEX IF NOT EXISTS idx_assignments_reviewer
 CREATE INDEX IF NOT EXISTS idx_assignments_conference
   ON assignments (conference_id);
 
--- reviews -- lookups by paper and by reviewer
+-- reviews — lookups by paper and by reviewer
 CREATE INDEX IF NOT EXISTS idx_reviews_paper
   ON reviews (paper_id);
 
 CREATE INDEX IF NOT EXISTS idx_reviews_reviewer
   ON reviews (reviewer_id);
 
--- invitations -- lookup by email (registration check) and token (link validation)
+-- invitations — lookup by email (registration check) and token (link validation)
 CREATE INDEX IF NOT EXISTS idx_invitations_email
   ON invitations (email);
 
 CREATE INDEX IF NOT EXISTS idx_invitations_token
   ON invitations (token);
 
--- login_otps -- lookup by user_id when verifying the submitted code
+-- login_otps — lookup by user_id when verifying the submitted code
 CREATE INDEX IF NOT EXISTS idx_login_otps_user
   ON login_otps (user_id);
 
--- paper_authors -- join from both directions
+-- paper_authors — join from both directions
 CREATE INDEX IF NOT EXISTS idx_paper_authors_paper
   ON paper_authors (paper_id);
 
 CREATE INDEX IF NOT EXISTS idx_paper_authors_author
   ON paper_authors (author_id);
 
--- authors -- lookup by email during submission (upsert check)
+-- authors — lookup by email during submission (upsert check)
 CREATE INDEX IF NOT EXISTS idx_authors_email
   ON authors (email);
 
--- authors -- lookup by user_id in getUserConferencePapersController
+-- authors — lookup by user_id in getUserConferencePapersController
 CREATE INDEX IF NOT EXISTS idx_authors_user
   ON authors (user_id);
 
--- conferences -- status filter used by pending/approved/rejected endpoints
+-- conferences — status filter used by pending/approved/rejected endpoints
 CREATE INDEX IF NOT EXISTS idx_conferences_status
   ON conferences (status);
 
--- conferences -- acronym lookup used by getConferenceByAcronymController
+-- conferences — acronym lookup used by getConferenceByAcronymController
 CREATE INDEX IF NOT EXISTS idx_conferences_acronym
   ON conferences (acronym);
 
@@ -501,7 +533,7 @@ CREATE INDEX IF NOT EXISTS idx_conferences_acronym
 -- SAFE MIGRATIONS
 -- Run ONLY these statements if the database already exists and
 -- you do not want to recreate it from scratch. Each statement
--- is idempotent (IF NOT EXISTS / IF EXISTS guards).
+-- is idempotent (IF NOT EXISTS guards).
 --
 -- These cover every column added after the original schema was
 -- deployed, derived from a full audit of all controllers.
@@ -535,9 +567,9 @@ ALTER TABLE research_papers
 ALTER TABLE research_papers
   ADD COLUMN IF NOT EXISTS conference_acronym TEXT;
 
--- research_papers: optional organizer feedback shown to authors after decision.
--- Used by updateFinalDecisionController when organizer reviews a paper directly
--- via the "Review Myself" flow in AssignPapersPage (v2.1 addition).
+-- research_papers: optional organizer feedback shown to authors after
+-- decision. Used by updateFinalDecisionController when organizer reviews
+-- a paper directly via the "Review Myself" flow in AssignPapersPage.
 ALTER TABLE research_papers
   ADD COLUMN IF NOT EXISTS organizer_comments_for_authors TEXT DEFAULT NULL;
 

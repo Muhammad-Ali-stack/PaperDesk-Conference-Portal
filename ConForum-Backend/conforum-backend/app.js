@@ -18,7 +18,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
 
 app.use(cors({
-  origin: process.env.BASE_URL || "http://localhost:3000",
+  origin: process.env.BASE_URL,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
@@ -44,7 +44,7 @@ app.post("/check-compliance", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded. Send a PDF as multipart field named 'file'." });
     }
 
-    const flaskUrl = process.env.IEEE_CHECKER_URL || "http://localhost:6000";
+    const flaskUrl = process.env.IEEE_CHECKER_URL;
     const form = new FormData();
     form.append("file", req.file.buffer, {
       filename: req.file.originalname || "paper.pdf",
