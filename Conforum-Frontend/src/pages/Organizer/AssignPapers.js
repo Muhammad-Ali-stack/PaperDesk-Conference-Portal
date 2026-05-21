@@ -427,7 +427,7 @@ const AssignPapersPage = () => {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <Layout title="ConForum - Assign Papers">
+    <Layout title="PaperDesk - Assign Papers">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-7xl mx-auto">
           {/* Header */}

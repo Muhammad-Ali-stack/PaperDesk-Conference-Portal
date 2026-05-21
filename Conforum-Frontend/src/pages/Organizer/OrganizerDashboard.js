@@ -3,7 +3,7 @@ import Layout from "../../components/Layout";
 
 const OrganizerDashboard = () => {
   return (
-    <Layout title="ConForum - Editor Dashboard">
+    <Layout title="PaperDesk - Editor Dashboard">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-5xl mx-auto">
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-teal-900 via-teal-800 to-teal-700 shadow-2xl min-h-[360px] flex items-center">

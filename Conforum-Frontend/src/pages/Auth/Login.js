@@ -182,7 +182,7 @@ const Login = () => {
 
   if (tokenLoading) {
     return (
-      <Layout title="ConForum - Sign In">
+      <Layout title="PaperDesk - Sign In">
         <div className="min-h-[80vh] flex items-center justify-center px-4 py-16">
           <div className="w-full max-w-md space-y-4">
             <Skeleton className="h-8 w-48 mx-auto" />
@@ -200,7 +200,7 @@ const Login = () => {
 
   if (token && !tokenValid) {
     return (
-      <Layout title="ConForum - Invalid Link">
+      <Layout title="PaperDesk - Invalid Link">
         <div className="min-h-[80vh] flex items-center justify-center px-4">
           <Card className="w-full max-w-md text-center">
             <CardContent className="p-8">
@@ -220,7 +220,7 @@ const Login = () => {
   }
 
   return (
-    <Layout title="ConForum - Sign In">
+    <Layout title="PaperDesk - Sign In">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
         <div className="w-full max-w-md animate-fade-in">
           <div className="text-center mb-8">
@@ -228,7 +228,7 @@ const Login = () => {
             <p className="text-muted-foreground mt-2 text-sm">
               {inviteRole
                 ? `You have been invited to join as ${inviteRole}`
-                : "Sign in to your ConForum account"}
+                : "Sign in to your PaperDesk account"}
             </p>
           </div>
 
@@ -297,7 +297,7 @@ const Login = () => {
                 </form>
 
                 <p className="text-center text-sm text-muted-foreground mt-6">
-                  New to ConForum?{" "}
+                  New to PaperDesk?{" "}
                   <button
                     onClick={() => navigate(token ? `/register?token=${token}` : "/register")}
                     className="text-primary font-semibold hover:underline"

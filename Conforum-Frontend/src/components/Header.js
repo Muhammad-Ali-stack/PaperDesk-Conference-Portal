@@ -69,11 +69,11 @@ const Header = () => {
           <NavLink to="/" className="flex items-center gap-3 flex-shrink-0 group">
             <img
               src="/logo.png"
-              alt="ConForum"
+              alt="PaperDesk"
               className="h-14 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
             />
             <span className="font-extrabold text-lg text-white tracking-tight">
-              Con<span className="text-teal-200">Forum</span>
+              Paper<span className="text-teal-200">Desk</span>
             </span>
           </NavLink>
 

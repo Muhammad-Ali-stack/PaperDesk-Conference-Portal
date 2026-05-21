@@ -82,7 +82,7 @@ const UserProfile = () => {
   };
 
   return (
-    <Layout title="ConForum - Profile">
+    <Layout title="PaperDesk - Profile">
       <div className="flex-1 p-4 sm:p-6 lg:p-10 overflow-auto">
         <div className="max-w-2xl mx-auto">
           <div className="mb-6 sm:mb-8">

@@ -561,7 +561,7 @@ const AllPapersOfAuthor = () => {
   };
 
   return (
-    <Layout title="ConForum - My Papers">
+    <Layout title="PaperDesk - My Papers">
       <div className="flex-1 p-6 lg:p-10 overflow-auto bg-background">
         <div className="mb-8">
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">My Papers</h1>

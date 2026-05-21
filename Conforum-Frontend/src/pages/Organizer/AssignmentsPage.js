@@ -63,7 +63,7 @@ const AssignmentsPage = () => {
   const paperCount = Object.keys(groupedPapers).length;
 
   return (
-    <Layout title="ConForum - Paper Assignments">
+    <Layout title="PaperDesk - Paper Assignments">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-4xl mx-auto">
           <Card>

@@ -56,7 +56,7 @@ const InviteReviewers = () => {
   };
 
   return (
-    <Layout title="ConForum - Invite Reviewers">
+    <Layout title="PaperDesk - Invite Reviewers">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-2xl mx-auto w-full">
           <div className="mb-6">

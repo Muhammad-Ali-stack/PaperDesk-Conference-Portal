@@ -389,7 +389,7 @@ const Home = () => {
   const anim = (id, delay = 0) => ({ "data-vid": id, className: `va${vis[id] ? " vi" : ""}`, style: delay ? { transitionDelay: `${delay}s` } : {} });
 
   return (
-    <Layout title="ConForum — Global Conference Management">
+    <Layout title="PaperDesk — Global Conference Management">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
         :root {
@@ -553,7 +553,7 @@ const Home = () => {
         <div className="sec-in">
           <div {...anim("hiw-h")} style={{ ...anim("hiw-h").style, textAlign: "center", marginBottom: "60px" }}>
             <span className="eyebrow">The Process</span>
-            <h2 className="sec-title">How <em>ConForum</em> works</h2>
+            <h2 className="sec-title">How <em>PaperDesk</em> works</h2>
             <div className="sec-rule" />
           </div>
           <div className="hiw-grid">
@@ -578,7 +578,7 @@ const Home = () => {
             <div {...anim("miss-l")}>
               <span className="miss-label">Our Mission</span>
               <h2 className="miss-title">We exist to <em>simplify</em><br />academic exchange</h2>
-              <p className="miss-body">Conference management shouldn't require a PhD in logistics. We built ConForum to give organizers their time back and give researchers a frictionless path from idea to publication.</p>
+              <p className="miss-body">Conference management shouldn't require a PhD in logistics. We built PaperDesk to give organizers their time back and give researchers a frictionless path from idea to publication.</p>
               <div className="miss-pills">
                 {missionPills.map(p => <span key={p} className="miss-pill">{p}</span>)}
               </div>
@@ -587,7 +587,7 @@ const Home = () => {
               <div className="quote-card">
                 <span className="quote-mark">"</span>
                 <p className="quote-text">The best research deserves the best platform. We built the infrastructure so ideas can travel freely.</p>
-                <span className="quote-author">ConForum Founding Team</span>
+                <span className="quote-author">PaperDesk Founding Team</span>
               </div>
             </div>
           </div>

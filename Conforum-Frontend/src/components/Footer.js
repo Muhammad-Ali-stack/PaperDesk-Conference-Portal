@@ -21,7 +21,7 @@ const Footer = () => {
           <div>
             <Link to="/" className="inline-flex items-center gap-2 group">
               <span className="font-extrabold text-2xl tracking-tight">
-                Con<span className="text-teal-300">Forum</span>
+                Paper<span className="text-teal-300">Desk</span>
               </span>
             </Link>
             <p className="text-sm text-white/50 leading-relaxed mt-4 max-w-md">
@@ -49,7 +49,7 @@ const Footer = () => {
 
         <div className="mt-12 pt-6 border-t border-white/10 text-center">
           <p className="text-xs text-white/30">
-            &copy; {year} ConForum &mdash; A Product of the Department of Computer Science &amp; Information Technology, NED University
+            &copy; {year} PaperDesk &mdash; A Product of the Department of Computer Science &amp; Information Technology, NED University
           </p>
         </div>
       </div>

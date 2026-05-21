@@ -60,7 +60,7 @@ const AllPapersToReview = () => {
   };
 
   return (
-    <Layout title="ConForum - Review Assignments">
+    <Layout title="PaperDesk - Review Assignments">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between mb-8 flex-wrap gap-4">

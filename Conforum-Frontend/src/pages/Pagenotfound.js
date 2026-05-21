@@ -6,7 +6,7 @@ import { Home } from "lucide-react";
 
 const Pagenotfound = () => {
   return (
-    <Layout title="ConForum - Page Not Found">
+    <Layout title="PaperDesk - Page Not Found">
       <div className="min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4 text-center">
         <div className="animate-fade-in">
           <p className="text-8xl font-black text-primary/20 mb-4">404</p>

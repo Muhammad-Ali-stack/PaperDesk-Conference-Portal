@@ -20,7 +20,7 @@ const PaperSubmissionDetails = () => {
 
   if (loading) {
     return (
-      <Layout title="ConForum - Paper Details">
+      <Layout title="PaperDesk - Paper Details">
         <div className="max-w-4xl mx-auto mt-8 p-6 space-y-5">
           <Skeleton className="h-8 w-56" />
           <div className="border rounded-xl p-6 space-y-4">
@@ -40,7 +40,7 @@ const PaperSubmissionDetails = () => {
 
   if (!paperDetails) {
     return (
-      <Layout title="ConForum - Paper Not Found">
+      <Layout title="PaperDesk - Paper Not Found">
         <div className="max-w-4xl mx-auto mt-8 p-6">
           <Card>
             <CardContent className="p-12 text-center text-muted-foreground">
@@ -66,7 +66,7 @@ const PaperSubmissionDetails = () => {
   const authors = (paper_authors || []).map((pa) => pa.authors);
 
   return (
-    <Layout title="ConForum - Paper Details">
+    <Layout title="PaperDesk - Paper Details">
       <div className="max-w-4xl mx-auto mt-8 p-6">
         <h2 className="text-2xl font-bold text-foreground mb-4">Submission Details</h2>
         <Card>

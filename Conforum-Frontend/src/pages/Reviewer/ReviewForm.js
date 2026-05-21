@@ -141,7 +141,7 @@ const ReviewForm = () => {
   );
 
   return (
-    <Layout title="ConForum - Review Form">
+    <Layout title="PaperDesk - Review Form">
       <div className="min-h-screen bg-background py-12 px-4">
         <div className="max-w-4xl mx-auto">
           <form

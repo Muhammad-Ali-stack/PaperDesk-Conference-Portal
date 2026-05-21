@@ -277,7 +277,7 @@ function ConferenceCreationForm() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <Layout title="ConForum - Create Conference">
+    <Layout title="PaperDesk - Create Conference">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-4xl mx-auto">
 

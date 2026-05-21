@@ -33,7 +33,7 @@ const AcceptedInvitations = () => {
   }, [conferenceId]);
 
   return (
-    <Layout title="ConForum - Accepted Invitations">
+    <Layout title="PaperDesk - Accepted Invitations">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
           <div className="max-w-3xl mx-auto w-full">
             <div className="mb-6">

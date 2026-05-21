@@ -260,7 +260,7 @@ const UpdatePaper = () => {
 
   if (!paperId) {
     return (
-      <Layout title="ConForum - Update Paper">
+      <Layout title="PaperDesk - Update Paper">
         <div className="flex justify-center items-center min-h-screen">
           <p className="text-destructive">No paper ID provided.</p>
         </div>
@@ -269,7 +269,7 @@ const UpdatePaper = () => {
   }
 
   return (
-    <Layout title={isResubmit ? "ConForum - Resubmit Paper" : "ConForum - Update Paper"}>
+    <Layout title={isResubmit ? "PaperDesk - Resubmit Paper" : "PaperDesk - Update Paper"}>
       <div className="flex-1 overflow-auto bg-background">
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-10 py-10">
 

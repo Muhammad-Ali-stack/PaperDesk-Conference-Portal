@@ -48,7 +48,7 @@ const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, s
         <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
           <tr>
             <td style="background-color:#4B707A;padding:32px 40px;text-align:center;">
-              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">ConForum</h1>
+              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">PaperDesk</h1>
               <p style="margin:6px 0 0;color:#d1e8eb;font-size:13px;">Conference Management System</p>
             </td>
           </tr>
@@ -67,7 +67,7 @@ const sendPaperStatusEmail = async ({ paperId, subject, headingText, bodyText, s
           </tr>
           <tr>
             <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
-              <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} ConForum &mdash; Conference Management System</p>
+              <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System</p>
             </td>
           </tr>
         </table>
@@ -1114,7 +1114,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
       const coverPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
       coverPage.drawRectangle({ x: 0, y: PAGE_H - 160, width: PAGE_W, height: 160, color: TEAL });
 
-      coverPage.drawText("ConForum", { x: MARGIN, y: PAGE_H - 55, size: 28, font: helveticaBold, color: WHITE });
+      coverPage.drawText("PaperDesk", { x: MARGIN, y: PAGE_H - 55, size: 28, font: helveticaBold, color: WHITE });
       coverPage.drawText("Conference Management System", { x: MARGIN, y: PAGE_H - 80, size: 12, font: helvetica, color: rgb(0.82, 0.92, 0.93) });
       coverPage.drawText("Proceedings", { x: MARGIN, y: PAGE_H - 120, size: 22, font: helveticaBold, color: WHITE });
 
@@ -1169,7 +1169,7 @@ export const proceedingsPdfGenerationController = async (req, res) => {
       for (const paper of papers || []) {
         const paperPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
         paperPage.drawRectangle({ x: 0, y: PAGE_H - 60, width: PAGE_W, height: 60, color: LIGHT_GRAY });
-        paperPage.drawText("ConForum Proceedings", { x: MARGIN, y: PAGE_H - 38, size: 10, font: helvetica, color: GRAY });
+        paperPage.drawText("PaperDesk Proceedings", { x: MARGIN, y: PAGE_H - 38, size: 10, font: helvetica, color: GRAY });
 
         const titleText = paper.title || "Untitled Paper";
         paperPage.drawText(titleText, {

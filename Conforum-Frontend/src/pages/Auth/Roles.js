@@ -39,7 +39,7 @@ const RolesPage = () => {
   }, [auth?.user?._id]);
 
   return (
-    <Layout title="ConForum - My Conferences">
+    <Layout title="PaperDesk - My Conferences">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">

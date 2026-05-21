@@ -34,7 +34,7 @@ const ReviewerRegistrationForm = () => {
   };
 
   return (
-    <Layout title={"ConForum - Reviewer Registration"}>
+    <Layout title={"PaperDesk - Reviewer Registration"}>
       <div className="min-h-screen bg-white text-primary flex items-center justify-center">
         {/* Toast container */}
         <Toaster position="top-center" reverseOrder={false} />

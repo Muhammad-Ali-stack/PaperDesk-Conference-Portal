@@ -134,7 +134,7 @@ const Register = () => {
 
   if (tokenLoading) {
     return (
-      <Layout title="ConForum - Register">
+      <Layout title="PaperDesk - Register">
         <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
           <div className="w-full max-w-md">
             <div className="text-center mb-8">
@@ -167,7 +167,7 @@ const Register = () => {
 
   if (token && !tokenValid) {
     return (
-      <Layout title="ConForum - Invalid Link">
+      <Layout title="PaperDesk - Invalid Link">
         <div className="min-h-[80vh] flex items-center justify-center px-4">
           <Card className="w-full max-w-md text-center">
             <CardContent className="p-8">
@@ -187,7 +187,7 @@ const Register = () => {
   }
 
   return (
-    <Layout title="ConForum - Register">
+    <Layout title="PaperDesk - Register">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
         <div className="w-full max-w-md animate-fade-in">
           <div className="text-center mb-8">

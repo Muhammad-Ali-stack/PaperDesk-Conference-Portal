@@ -29,7 +29,7 @@ const ConferencePapers = () => {
   }, [id]);
 
   return (
-    <Layout title="ConForum - Submissions">
+    <Layout title="PaperDesk - Submissions">
       <div className="min-h-screen bg-background px-4 py-8 max-w-screen-xl mx-auto">
         <div className="mb-8">
           <h1 className="text-2xl font-extrabold tracking-tight">

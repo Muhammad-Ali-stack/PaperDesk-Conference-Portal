@@ -203,7 +203,7 @@ const UserSidebar = () => {
       {expanded && (
         <div className="p-3 border-t shrink-0">
           <p className="text-[10px] font-bold text-center text-muted-foreground/50 uppercase tracking-widest">
-            ConForum v1.1
+            PaperDesk v1.1
           </p>
         </div>
       )}

@@ -1,6 +1,6 @@
 import React from "react";
 
-const Layout = ({ children, title = "ConForum" }) => {
+const Layout = ({ children, title = "PaperDesk" }) => {
   React.useEffect(() => {
     document.title = title;
   }, [title]);

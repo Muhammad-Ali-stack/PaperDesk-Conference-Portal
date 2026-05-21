@@ -42,7 +42,7 @@ const ConferencesByRole = ({ role }) => {
   };
 
   return (
-    <Layout title={`ConForum - ${roleLabel} Conferences`}>
+    <Layout title={`PaperDesk - ${roleLabel} Conferences`}>
       <div className="flex min-h-[calc(100vh-4rem)]">
         <UserSidebar />
         <div className="flex-1 p-6 lg:p-10 overflow-auto">

@@ -453,7 +453,7 @@ function AuthorForm({ conferenceName }) {
   // Show a full-screen spinner while auth and initial data are loading.
   if (loading) {
     return (
-      <Layout title="ConForum - Submit paper">
+      <Layout title="PaperDesk - Submit paper">
         <div className="flex justify-center items-center min-h-screen bg-background">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -465,7 +465,7 @@ function AuthorForm({ conferenceName }) {
   const colours = complianceColorMap[colour];
 
   return (
-    <Layout title="ConForum - Submit paper">
+    <Layout title="PaperDesk - Submit paper">
       <div className="min-h-screen bg-background py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
 

@@ -36,7 +36,7 @@ const otpEmailHtml = (name, otp) => `
         <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
           <tr>
             <td style="background-color:#4B707A;padding:32px 40px;text-align:center;">
-              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">ConForum</h1>
+              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">PaperDesk</h1>
               <p style="margin:6px 0 0;color:#d1e8eb;font-size:13px;">Conference Management System</p>
             </td>
           </tr>
@@ -52,7 +52,7 @@ const otpEmailHtml = (name, otp) => `
           </tr>
           <tr>
             <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
-              <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} ConForum &mdash; Conference Management System</p>
+              <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System</p>
             </td>
           </tr>
         </table>
@@ -353,7 +353,7 @@ export const loginController = async (req, res) => {
     const { sent, reason } = await sendMail({
       type: "otp",
       to: user.email,
-      subject: "Your ConForum Login Code",
+      subject: "Your PaperDesk Login Code",
       html: otpEmailHtml(user.name, otp),
     });
 

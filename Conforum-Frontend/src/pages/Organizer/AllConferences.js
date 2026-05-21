@@ -38,7 +38,7 @@ const AllConferences = () => {
   }, [isAdmin]);
 
   return (
-    <Layout title="ConForum - Conferences">
+    <Layout title="PaperDesk - Conferences">
       <div className="min-h-[calc(100vh-4rem)] bg-background">
         <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-10">
           <div className="mb-8">

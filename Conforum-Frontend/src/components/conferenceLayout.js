@@ -29,7 +29,7 @@ const ConferenceLayout = () => {
 
   if (loading) {
     return (
-      <Layout title="ConForum - Conference Details">
+      <Layout title="PaperDesk - Conference Details">
         <LoadingSpinner fullPage />
       </Layout>
     );
@@ -37,7 +37,7 @@ const ConferenceLayout = () => {
 
   if (!conference) {
     return (
-      <Layout title="ConForum - Not Found">
+      <Layout title="PaperDesk - Not Found">
         <div className="text-center py-20 text-muted-foreground">Conference not found.</div>
       </Layout>
     );
@@ -60,7 +60,7 @@ const ConferenceLayout = () => {
   const tabs = isOrganizer ? organizerTabs : isAuthor ? authorTabs : [];
 
   return (
-    <Layout title={`ConForum - ${conference.conference_name || "Conference"}`}>
+    <Layout title={`PaperDesk - ${conference.conference_name || "Conference"}`}>
       <div className="bg-background">
         {tabs.length > 0 && (
           <div className="border-b bg-card sticky top-16 z-30">

@@ -43,7 +43,7 @@ const ReviewerLoginForm = () => {
   };
 
   return (
-    <Layout title={"ConForum - Login"}>
+    <Layout title={"PaperDesk - Login"}>
       <div className="min-h-screen bg-white text-primary flex items-center justify-center">
         {/* Toast container */}
         <div className="w-full max-w-md bg-gray-100 p-8 rounded-lg shadow-lg">

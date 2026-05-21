@@ -15,7 +15,7 @@ const ThankYouPage = () => {
   const accepted = status === "accepted";
 
   return (
-    <Layout title="ConForum - Response">
+    <Layout title="PaperDesk - Response">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4">
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardContent className="p-10 text-center">

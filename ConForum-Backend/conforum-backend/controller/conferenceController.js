@@ -50,7 +50,7 @@ export const sendOrganizerInviteController = async (req, res) => {
         <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
           <tr>
             <td style="background-color:#4B707A; padding: 32px 40px; text-align:center;">
-              <h1 style="margin:0; color:#ffffff; font-size:26px; font-weight:800; letter-spacing:1px;">ConForum</h1>
+              <h1 style="margin:0; color:#ffffff; font-size:26px; font-weight:800; letter-spacing:1px;">PaperDesk</h1>
               <p style="margin:6px 0 0; color:#d1e8eb; font-size:13px;">Conference Management System</p>
             </td>
           </tr>
@@ -60,7 +60,7 @@ export const sendOrganizerInviteController = async (req, res) => {
                 You have been invited as an Organizer
               </h2>
               <p style="margin:0 0 24px; color:#6b7280; font-size:14px;">
-                You have been selected to manage a conference on ConForum.
+                You have been selected to manage a conference on PaperDesk.
               </p>
               ${message ? `
               <div style="background-color:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; margin-bottom:28px;">
@@ -90,7 +90,7 @@ export const sendOrganizerInviteController = async (req, res) => {
           <tr>
             <td style="background-color:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
               <p style="margin:0; font-size:12px; color:#9ca3af;">
-                &copy; ${new Date().getFullYear()} ConForum &mdash; Conference Management System<br/>
+                &copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System<br/>
                 This email was sent to <strong>${organizerEmail}</strong>
               </p>
             </td>
@@ -106,7 +106,7 @@ export const sendOrganizerInviteController = async (req, res) => {
     const { sent } = await sendMail({
       type: "admin",
       to: organizerEmail,
-      subject: `Organizer Invitation — ConForum`,
+      subject: `Organizer Invitation — PaperDesk`,
       html: emailHtml,
     });
 
@@ -238,7 +238,7 @@ export const createConferenceController = async (req, res) => {
 
       if (!targetUser) {
         return res.status(404).json({
-          message: `No account found for "${organizerEmail}". The organizer must have a ConForum account before a conference can be assigned to them.`,
+          message: `No account found for "${organizerEmail}". The organizer must have a PaperDesk account before a conference can be assigned to them.`,
         });
       }
 

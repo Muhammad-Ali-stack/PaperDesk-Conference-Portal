@@ -114,7 +114,7 @@ const LearnMore = () => {
   const { visible, ref } = useVisible();
 
   return (
-    <Layout title="ConForum - Learn More">
+    <Layout title="PaperDesk - Learn More">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
 

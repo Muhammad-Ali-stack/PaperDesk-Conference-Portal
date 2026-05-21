@@ -186,7 +186,7 @@ export default function ConferencePapersDecisions() {
 
   if (loading) {
     return (
-      <Layout title="ConForum - Papers Decisions">
+      <Layout title="PaperDesk - Papers Decisions">
         <div className="flex-1 p-6 lg:p-10">
           <div className="max-w-7xl mx-auto">
             <Skeleton className="h-8 w-80 mb-2" />
@@ -201,7 +201,7 @@ export default function ConferencePapersDecisions() {
   }
 
   return (
-    <Layout title="ConForum - Papers Decisions">
+    <Layout title="PaperDesk - Papers Decisions">
       <div className="flex-1 p-6 lg:p-10">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-extrabold mb-1">

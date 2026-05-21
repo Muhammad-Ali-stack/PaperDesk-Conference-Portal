@@ -277,7 +277,7 @@ const ReviewDetails = () => {
 
   // Render
   return (
-    <Layout title="ConForum - Review Details">
+    <Layout title="PaperDesk - Review Details">
       <div className="flex-1 p-6 lg:p-10 overflow-auto bg-background">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-4xl font-bold mb-6 text-center text-foreground">
