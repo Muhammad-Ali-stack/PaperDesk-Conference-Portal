@@ -388,7 +388,6 @@ export const updateConferenceController = async (req, res) => {
     const userId = req.user._id || req.user.id;
 
     // Verify the authenticated user is the organizer of this specific conference.
-    // This prevents one organizer from editing another organizer's conference.
     const { data: conference } = await supabase
       .from("conferences")
       .select("organizer_id")
@@ -427,7 +426,20 @@ export const updateConferenceController = async (req, res) => {
       primaryArea,
       secondaryArea,
       topics,
+      max_resubmissions,          // <-- ADDED
     } = req.body;
+
+    // --- Validate max_resubmissions if provided ---
+    if (max_resubmissions !== undefined) {
+      if (max_resubmissions !== null) {
+        const parsed = parseInt(max_resubmissions, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          return res.status(400).json({
+            message: "max_resubmissions must be a positive integer or null (unlimited)."
+          });
+        }
+      }
+    }
 
     // Build update payload from only the fields that were provided.
     const updatedData = {};
@@ -444,6 +456,11 @@ export const updateConferenceController = async (req, res) => {
     if (primaryArea) updatedData.primary_area = primaryArea;
     if (secondaryArea) updatedData.secondary_area = secondaryArea;
     if (topics) updatedData.topics = topics;
+
+    // --- ADDED: handle max_resubmissions (allow null or number) ---
+    if (max_resubmissions !== undefined) {
+      updatedData.max_resubmissions = max_resubmissions === null ? null : parseInt(max_resubmissions, 10);
+    }
 
     const { data: updatedConference, error } = await supabase
       .from("conferences")

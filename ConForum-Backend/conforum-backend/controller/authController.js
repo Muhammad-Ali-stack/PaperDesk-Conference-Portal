@@ -67,12 +67,14 @@ const otpEmailHtml = (name, otp) => `
  * Registers a new user account, or updates roles for an existing user.
  *
  * Behaviour:
+ * - If the email already exists and NO role is provided (simple registration),
+ *   returns 409 Conflict with message to sign in instead.
+ * - If email exists but user is adding a reviewer or organizer role via invitation,
+ *   the role is added to the existing account.
  * - If `role` is "organizer", validates a pending organizer invitation before
  *   allowing registration and marks the invitation as accepted on success.
  * - If `role` is "reviewer", upserts a reviewer role record for the given
  *   `conferenceId` with the provided `expertise`.
- * - If the email already exists in the database, only the role/conference
- *   assignments are updated — no duplicate user record is created.
  *
  * @route POST /api/v1/auth/register
  * @param {string} req.body.name
@@ -89,6 +91,7 @@ const otpEmailHtml = (name, otp) => `
  * @returns {200} Existing user — roles and conferences updated.
  * @returns {400} Missing required fields.
  * @returns {403} No valid organizer invitation found.
+ * @returns {409} Email already registered (when no role provided).
  * @returns {500} Database or server error.
  */
 export const registerController = async (req, res) => {
@@ -154,6 +157,15 @@ export const registerController = async (req, res) => {
       .maybeSingle();
 
     if (existingUser) {
+      // ✅ If user exists and NO role provided (simple registration), reject with 409
+      if (!role || (role !== "reviewer" && role !== "organizer")) {
+        return res.status(409).json({
+          success: false,
+          message: "This email is already registered. Please sign in instead.",
+        });
+      }
+
+      // Allow adding reviewer role for existing user
       if (role === "reviewer" && expertise && conferenceId) {
         await supabase
           .from("user_conference_roles")
@@ -166,8 +178,14 @@ export const registerController = async (req, res) => {
             },
             { onConflict: "user_id,conference_id,role" }
           );
+        return res.status(200).json({
+          success: true,
+          message: "Reviewer role added to existing account.",
+          data: { user: existingUser },
+        });
       }
 
+      // Allow adding organizer role for existing user with valid invitation
       if (role === "organizer") {
         const invitation = await findInvitation("organizer");
         if (!invitation) {
@@ -182,12 +200,17 @@ export const registerController = async (req, res) => {
         }
 
         await supabase.from("invitations").update({ status: "accepted" }).eq("id", invitation.id);
+        return res.status(200).json({
+          success: true,
+          message: "Organizer role added to existing account.",
+          data: { user: existingUser },
+        });
       }
 
-      return res.status(200).json({
-        success: true,
-        message: "User already registered. Roles and conferences updated.",
-        data: { user: existingUser },
+      // Fallback: if we reach here, email exists but no valid role action
+      return res.status(409).json({
+        success: false,
+        message: "This email is already registered. Please sign in instead.",
       });
     }
 
@@ -233,6 +256,7 @@ export const registerController = async (req, res) => {
       data: { user: savedUser },
     });
   } catch (error) {
+    console.error("[register] Unexpected error:", error.message);
     return res.status(500).json({ success: false, message: "Error registering user." });
   }
 };

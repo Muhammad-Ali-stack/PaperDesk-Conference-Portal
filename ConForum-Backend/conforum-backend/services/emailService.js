@@ -35,7 +35,7 @@ const _doSend = async (type, mailOptions) => {
   }
 
   await transporter.sendMail({
-    from: `"ConForum" <${from}>`,
+    from: `"PaperDesk" <${from}>`,
     ...mailOptions,
   });
 };
