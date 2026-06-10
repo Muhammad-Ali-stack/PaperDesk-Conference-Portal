@@ -399,21 +399,22 @@ export const getUserConferencePapersController = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID and Conference ID are required." });
     }
 
-    const { data: authorRecord } = await supabase
-      .from("authors")
-      .select("id")
-      .eq("user_id", userId)
-      .maybeSingle();
+    // After (fixed):
+const { data: authorRecords } = await supabase
+  .from("authors")
+  .select("id")
+  .eq("user_id", userId);
 
-    if (!authorRecord) {
-      return res.status(404).json({ success: false, message: "Author record not found for the user." });
-    }
+if (!authorRecords || authorRecords.length === 0) {
+  return res.status(404).json({ success: false, message: "Author record not found for the user." });
+}
 
-    const { data: paperAuthors } = await supabase
-      .from("paper_authors")
-      .select("paper_id")
-      .eq("author_id", authorRecord.id);
+const authorIds = authorRecords.map(a => a.id);
 
+const { data: paperAuthors } = await supabase
+  .from("paper_authors")
+  .select("paper_id")
+  .in("author_id", authorIds);  // ← .in() instead of .eq()
     if (!paperAuthors || paperAuthors.length === 0) {
       return res.status(404).json({ success: false, message: "No papers found for the user in this conference." });
     }

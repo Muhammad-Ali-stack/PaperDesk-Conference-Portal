@@ -30,6 +30,16 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+// Helper function to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Badge variant helpers
 // ---------------------------------------------------------------------------
@@ -154,7 +164,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     if (!conferenceId || !paperId) return;
     setLoadingStatus(true);
     axios
-      .get(`/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`)
+      .get(`/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`, getAuthHeaders())
       .then((res) => {
         setSubmissionStatus(res.data?.data ?? null);
       })
@@ -216,18 +226,11 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     }
   };
 
-  // ── Organizer comments ──────────────────────────────────────────────────
-  // When the organizer reviews directly (no reviewer assigned), their comments
-  // are stored in organizer_comments_for_authors. We show them with the same
-  // UI as reviewer comments — authors see one unified feedback section.
   const organizerComments =
     paper.organizer_comments_for_authors ?? paper.organizerCommentsForAuthors ?? null;
 
-  // Merge organizer comments + reviewer comments into a single list
-  // so the author sees all feedback in the same card style.
   const allComments = [];
 
-  // Reviewer comments from the reviews array (existing flow)
   if (paper.reviews?.length > 0) {
     paper.reviews.forEach((review) => {
       if (review.comments_for_authors) {
@@ -239,8 +242,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     });
   }
 
-  // Organizer comment — add as an extra entry with no confidence score
-  // Intentionally no label distinguishing it from reviewer comments.
   if (organizerComments) {
     allComments.push({
       text: organizerComments,
@@ -430,7 +431,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 </div>
               </div>
 
-              {/* ── Unified comments section (reviewer + organizer, same UI) ── */}
               {allComments.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
@@ -509,11 +509,12 @@ const AllPapersOfAuthor = () => {
     const fetchConferences = async () => {
       setLoadingConferences(true);
       try {
-        const res = await axios.get(`/api/author/${userId}/conferences`);
+        const res = await axios.get(`/api/author/${userId}/conferences`, getAuthHeaders());
         const fetched = res.data?.data?.conferences ?? [];
         setConferences(fetched);
-      } catch {
-        toast.error("Unable to load conferences. Please try again.");
+      } catch (err) {
+        console.error("Error fetching conferences:", err.response?.data);
+        toast.error(err.response?.data?.message || "Unable to load conferences. Please try again.");
       } finally {
         setLoadingConferences(false);
       }
@@ -527,12 +528,25 @@ const AllPapersOfAuthor = () => {
       setLoadingPapers(true);
       setPapers([]);
       try {
-        const res = await axios.get(`/api/author/${userId}/${selectedConferenceId}/papers`);
+        console.log(`Fetching papers for user ${userId}, conference ${selectedConferenceId}`);
+        const res = await axios.get(`/api/author/${userId}/${selectedConferenceId}/papers`, getAuthHeaders());
+        console.log("API Response:", res.data);
+        
         const fetched = res.data?.data?.papers ?? [];
+        console.log(`Found ${fetched.length} papers`);
+        
         setPapers(Array.isArray(fetched) ? fetched : []);
+        
+        if (fetched.length === 0) {
+          toast.success("No papers found for this conference");
+        }
       } catch (err) {
-        if (err.response?.status === 404) {
+        console.error("Error fetching papers:", err.response?.data);
+        if (err.response?.status === 401) {
+          toast.error("Authentication failed. Please login again.");
+        } else if (err.response?.status === 404) {
           setPapers([]);
+          toast.error("No papers found for this conference");
         } else {
           toast.error(err.response?.data?.message || "Failed to load papers.");
         }
@@ -545,11 +559,12 @@ const AllPapersOfAuthor = () => {
 
   const handleDelete = async (paperId) => {
     try {
-      await axios.delete(`/api/author/delete-paper/${paperId}/${selectedConferenceId}`);
+      await axios.delete(`/api/author/delete-paper/${paperId}/${selectedConferenceId}`, getAuthHeaders());
       setPapers((prev) => prev.filter((p) => (p.id || p._id) !== paperId));
       toast.success("Paper deleted successfully.");
-    } catch {
-      toast.error("Failed to delete the paper. Please try again.");
+    } catch (err) {
+      console.error("Delete error:", err.response?.data);
+      toast.error(err.response?.data?.message || "Failed to delete the paper. Please try again.");
     }
   };
 

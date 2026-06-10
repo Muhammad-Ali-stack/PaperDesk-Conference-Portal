@@ -88,8 +88,8 @@ const RolesPage = () => {
                           </td>
                           <td className="px-6 py-4">
                             <Badge variant="teal" className="capitalize">
-                              {roleItem.role}
-                            </Badge>
+  {roleItem.role === 'organizer' ? 'Editor' : roleItem.role}
+</Badge>
                           </td>
                         </tr>
                       );

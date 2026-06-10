@@ -157,7 +157,7 @@ export const registerController = async (req, res) => {
       .maybeSingle();
 
     if (existingUser) {
-      // ✅ If user exists and NO role provided (simple registration), reject with 409
+      //  If user exists and NO role provided (simple registration), reject with 409
       if (!role || (role !== "reviewer" && role !== "organizer")) {
         return res.status(409).json({
           success: false,
@@ -499,7 +499,7 @@ export const getInvitationByTokenController = async (req, res) => {
 
     const { data: invitation } = await supabase
       .from("invitations")
-      .select("email, role, conference_id, status, conferences!conference_id(conference_name, acronym, expertise)") // ✅ added expertise
+      .select("email, role, conference_id, status, conferences!conference_id(conference_name, acronym, expertise)") //  added expertise
       .eq("token", token)
       .eq("status", "pending")
       .maybeSingle();
@@ -516,7 +516,7 @@ export const getInvitationByTokenController = async (req, res) => {
         conferenceId: invitation.conference_id,
         conferenceName: invitation.conferences?.conference_name || null,
         conferenceAcronym: invitation.conferences?.acronym || null,
-        expertise: invitation.conferences?.expertise || [], // ✅ added
+        expertise: invitation.conferences?.expertise || [], //  added
       },
     });
   } catch (error) {

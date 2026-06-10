@@ -18,44 +18,77 @@ export const OrganizerConferenceProvider = ({ children }) => {
     }
   });
   const [loading, setLoading] = useState(true);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false); //  Track dropdown state
 
-  useEffect(() => {
+  //  Function to fetch conferences with smart comparison
+  const fetchConferences = async () => {
     if (!userId) {
       setLoading(false);
       return;
     }
 
-    const fetchConferences = async () => {
-      setLoading(true);
-      try {
-        //  Correct endpoint – matches your backend
-        const res = await axios.get(`/api/auth/user-conferences/${userId}?role=organizer`);
-        //  Access the nested data.conferences array
-        const rawList = res.data?.data?.conferences ?? [];
-        //  Map backend fields to what the selector expects (id, conference_name)
-        const mappedList = rawList.map(conf => ({
-          id: conf.conferenceId,
-          conference_name: conf.conferenceName,
-          acronym: conf.acronym || "",
-          status: conf.status || ""
-        }));
-        setConferences(mappedList);
+    setLoading(true);
+    try {
+      const res = await axios.get(`/api/auth/user-conferences/${userId}?role=organizer`);
+      const rawList = res.data?.data?.conferences ?? [];
+      const mappedList = rawList.map(conf => ({
+        id: conf.conferenceId,
+        conference_name: conf.conferenceName,
+        acronym: conf.acronym || "",
+        status: conf.status || ""
+      }));
 
-        // Auto-select first conference if none selected or saved selection no longer exists
-        setSelectedConference(prev => {
-          if (prev && mappedList.some(c => c.id === prev.id)) return prev;
-          return mappedList[0] ?? null;
-        });
-      } catch (err) {
-        console.error("Failed to fetch organizer conferences:", err);
-        setConferences([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+      //  Only update state if data actually changed (prevents unnecessary re-renders)
+      setConferences(prevConferences => {
+        const hasChanged = JSON.stringify(prevConferences) !== JSON.stringify(mappedList);
+        return hasChanged ? mappedList : prevConferences;
+      });
 
+      // Auto-select first conference if none selected or saved selection no longer exists
+      setSelectedConference(prev => {
+        if (prev && mappedList.some(c => c.id === prev.id)) return prev;
+        return mappedList[0] ?? null;
+      });
+    } catch (err) {
+      console.error("Failed to fetch organizer conferences:", err);
+      setConferences([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  //  Initial fetch on mount or userId change
+  useEffect(() => {
     fetchConferences();
   }, [userId]);
+
+  //  POLLING: Refetch every 30 seconds (increased from 10 for smoother UX)
+  // Skip refetch if dropdown is open to avoid stuttering
+  useEffect(() => {
+    if (!userId) return;
+
+    console.log("[OrganizerConferenceProvider] Starting conference polling (30s interval)...");
+
+    // Fetch immediately
+    fetchConferences();
+
+    // Then fetch every 30 seconds
+    const pollInterval = setInterval(() => {
+      //  Skip refetch if dropdown is open
+      if (!isDropdownOpen) {
+        console.log("[OrganizerConferenceProvider] Polling for conference updates...");
+        fetchConferences();
+      } else {
+        console.log("[OrganizerConferenceProvider] Skipping poll - dropdown is open");
+      }
+    }, 600000); // 30 seconds (was 10)
+
+    // Cleanup interval on unmount
+    return () => {
+      clearInterval(pollInterval);
+      console.log("[OrganizerConferenceProvider] Polling stopped");
+    };
+  }, [userId, isDropdownOpen]); //  Add isDropdownOpen to dependencies
 
   const selectConference = (conf) => {
     setSelectedConference(conf);
@@ -71,6 +104,9 @@ export const OrganizerConferenceProvider = ({ children }) => {
         conferenceId: selectedConference?.id ?? null,
         conferenceName: selectedConference?.conference_name ?? "",
         loading,
+        refetchConferences: fetchConferences,
+        isDropdownOpen, //  Export dropdown state
+        setIsDropdownOpen, //  Export setter so components can update it
       }}
     >
       {children}

@@ -8,7 +8,7 @@ const WORKER_COUNT = Math.min(cpus().length, 4);
 const port = process.env.PORT || 8080;
 
 if (cluster.isPrimary) {
-  console.log(`ConForum primary process ${process.pid} starting ${WORKER_COUNT} workers.`);
+  console.log(`PaperDesk primary process ${process.pid} starting ${WORKER_COUNT} workers.`);
 
   for (let i = 0; i < WORKER_COUNT; i++) {
     cluster.fork();
@@ -20,6 +20,6 @@ if (cluster.isPrimary) {
   });
 } else {
   app.listen(port, () => {
-    console.log(`ConForum worker ${process.pid} running on port ${port}`);
+    console.log(`PaperDesk worker ${process.pid} running on port ${port}`);
   });
 }

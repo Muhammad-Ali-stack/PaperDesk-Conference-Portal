@@ -1,5 +1,5 @@
-import React, { Suspense } from "react";
-import { Outlet } from "react-router-dom";
+import React, { Suspense, useRef, useEffect } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import UserSidebar from "./UserSidebar";
 import { Skeleton } from "./ui/skeleton";
 
@@ -17,15 +17,29 @@ const ContentLoader = () => (
   </div>
 );
 
-const DashboardLayout = () => (
-  <div className="flex min-h-[calc(100vh-4rem)]">
-    <UserSidebar />
-    <div className="flex-1 min-w-0 overflow-auto">
-      <Suspense fallback={<ContentLoader />}>
-        <Outlet />
-      </Suspense>
+const DashboardLayout = () => {
+  const { pathname } = useLocation();
+  const mainRef = useRef(null);
+
+  // Scroll the content container (not window) back to top on every
+  // route change. Resetting window.scrollTo was causing the sticky
+  // sidebar to visually snap because window scroll != content scroll.
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [pathname]);
+
+  return (
+    <div className="flex min-h-[calc(100vh-4rem)]">
+      <UserSidebar />
+      <div ref={mainRef} className="flex-1 min-w-0 overflow-auto">
+        <Suspense fallback={<ContentLoader />}>
+          <Outlet />
+        </Suspense>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default DashboardLayout;

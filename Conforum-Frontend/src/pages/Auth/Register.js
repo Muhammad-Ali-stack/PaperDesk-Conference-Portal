@@ -21,6 +21,11 @@ const passwordRules = {
   },
 };
 
+const confirmPasswordRules = (watchPassword) => ({
+  required: "Please confirm your password.",
+  validate: (value) => value === watchPassword || "Passwords do not match.",
+});
+
 const Register = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
@@ -34,6 +39,8 @@ const Register = () => {
   const [expertiseOptions, setExpertiseOptions] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [emailExistsError, setEmailExistsError] = useState(false);
 
   const isReviewer = inviteRole === "reviewer";
 
@@ -43,7 +50,7 @@ const Register = () => {
   const navigate = useNavigate();
   const passwordValue = watch("password", "");
 
-  // ✅ Single useEffect — fetches invite details AND expertise in one call
+  //  Single useEffect — fetches invite details AND expertise in one call
   useEffect(() => {
     if (!token) return;
     const fetchInvite = async () => {
@@ -55,7 +62,7 @@ const Register = () => {
           setInviteRole(inviteData.role);
           setInviteConferenceId(inviteData.conferenceId || "");
           setInviteConferenceName(inviteData.conferenceName || "");
-          setExpertiseOptions(inviteData.expertise || []); // ✅ comes from backend now
+          setExpertiseOptions(inviteData.expertise || []); //  comes from backend now
           setValue("email", inviteData.email);
           setTokenValid(true);
         } else {
@@ -70,11 +77,12 @@ const Register = () => {
     fetchInvite();
   }, [token, setValue]);
 
-  // ✅ Second useEffect calling /api/conference/get-conference/:id is REMOVED
+  //  Second useEffect calling /api/conference/get-conference/:id is REMOVED
   //    (it required auth which the user doesn't have yet on this page)
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
+    setEmailExistsError(false);
     try {
       const payload = {
         ...data,
@@ -85,14 +93,21 @@ const Register = () => {
       };
       const res = await axios.post("/api/auth/register", payload);
       if (res.data.success) {
-        toast.success(res.data.message || "Account created successfully. You can now sign in.");
+        toast.success("User registered successfully!");
         navigate("/login");
       } else {
         toast.error(res.data.message || "Registration failed. Please try again.");
       }
     } catch (error) {
-      const msg = error?.response?.data?.message;
-      if (msg && !msg.toLowerCase().includes("server") && !msg.toLowerCase().includes("internal")) {
+      const msg = error?.response?.data?.message || "";
+      const statusCode = error?.response?.status;
+      
+      // Check for user already exists error
+      if (statusCode === 409 || msg.toLowerCase().includes("already") || msg.toLowerCase().includes("exist") || msg.toLowerCase().includes("registered")) {
+        setEmailExistsError(true);
+        toast.error("This email is already registered. Please sign in instead.");
+        setTimeout(() => navigate("/login"), 2000);
+      } else if (msg && !msg.toLowerCase().includes("server") && !msg.toLowerCase().includes("internal")) {
         toast.error(msg);
       } else {
         toast.error("Registration could not be completed. Please try again.");
@@ -238,9 +253,21 @@ const Register = () => {
                         message: "Please enter a valid email address.",
                       },
                     })}
-                    className={fieldError("email") ? "border-destructive" : ""}
+                    className={fieldError("email") || emailExistsError ? "border-destructive" : ""}
                   />
                   {fieldError("email") && <p className="text-destructive text-xs font-medium">{fieldError("email")}</p>}
+                  {emailExistsError && (
+                    <div className="flex items-center gap-2 text-xs font-medium text-destructive">
+                      <span>This email is already registered.</span>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/login")}
+                        className="underline hover:no-underline font-semibold"
+                      >
+                        Sign in here
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -265,6 +292,27 @@ const Register = () => {
                     ? <p className="text-destructive text-xs font-medium">{fieldError("password")}</p>
                     : <PasswordStrength password={passwordValue} />
                   }
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirm-password"
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      {...register("confirmPassword", confirmPasswordRules(passwordValue))}
+                      className={fieldError("confirmPassword") ? "border-destructive pr-10" : "pr-10"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {fieldError("confirmPassword") && <p className="text-destructive text-xs font-medium">{fieldError("confirmPassword")}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
