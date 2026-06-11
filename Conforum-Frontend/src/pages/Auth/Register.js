@@ -192,7 +192,7 @@ const Register = () => {
                 </svg>
               </div>
               <h2 className="text-xl font-bold mb-2">Invalid or Expired Link</h2>
-              <p className="text-muted-foreground text-sm">This invitation link is no longer valid. Please request a new one from the conference organizer.</p>
+              <p className="text-muted-foreground text-sm">This invitation link is no longer valid. Please request a new one from the conference Editor.</p>
               <Button className="mt-6" onClick={() => navigate("/login")}>Go to Sign In</Button>
             </CardContent>
           </Card>
@@ -207,7 +207,7 @@ const Register = () => {
         <div className="w-full max-w-md animate-fade-in">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-extrabold tracking-tight">
-              {inviteRole ? `Register as ${inviteRole}` : "Create an account"}
+           {inviteRole ? `Register as ${inviteRole === "organizer" ? "Editor" : inviteRole}` : "Create an account"}
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
               {inviteConferenceName
@@ -383,7 +383,7 @@ const Register = () => {
                 <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">
                   {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating Account...</> : (
                     inviteRole === "reviewer" ? "Register as Reviewer" :
-                    inviteRole === "organizer" ? "Register as Organizer" : "Create Account"
+              inviteRole === "organizer" ? "Register as Editor" : "Create Account"
                   )}
                 </Button>
               </form>

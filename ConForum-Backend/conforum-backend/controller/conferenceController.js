@@ -20,7 +20,7 @@ export const sendOrganizerInviteController = async (req, res) => {
     const { organizerEmail, message } = req.body;
 
     if (!organizerEmail) {
-      return res.status(400).json({ message: "Organizer email is required." });
+      return res.status(400).json({ message: "Editor email is required." });
     }
 
     const inviteToken = crypto.randomUUID();
@@ -57,7 +57,7 @@ export const sendOrganizerInviteController = async (req, res) => {
           <tr>
             <td style="padding: 40px 40px 32px;">
               <h2 style="margin:0 0 8px; color:#1a1a1a; font-size:22px; font-weight:700;">
-                You have been invited as an Organizer
+                You have been invited as an Editor
               </h2>
               <p style="margin:0 0 24px; color:#6b7280; font-size:14px;">
                 You have been selected to manage a conference on PaperDesk.
@@ -69,7 +69,7 @@ export const sendOrganizerInviteController = async (req, res) => {
               </div>
               ` : ""}
               <p style="margin:0 0 24px; font-size:14px; color:#374151; line-height:1.7;">
-                As an organizer, you will be responsible for creating and managing conference submissions, assigning reviewers, and making final decisions on papers.
+                As an Editor, you will be responsible for creating and managing conference submissions, assigning reviewers, and making final decisions on papers.
               </p>
               <table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>
@@ -106,17 +106,17 @@ export const sendOrganizerInviteController = async (req, res) => {
     const { sent } = await sendMail({
       type: "admin",
       to: organizerEmail,
-      subject: `Organizer Invitation — PaperDesk`,
+      subject: `Editor Invitation — PaperDesk`,
       html: emailHtml,
     });
 
     return res.status(200).json({
-      message: "Organizer invitation created successfully.",
+      message: "Editor invitation created successfully.",
       emailSent: sent,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Error sending organizer invitation.",
+      message: "Error sending Editor invitation.",
       error: error.message,
     });
   }
@@ -238,7 +238,7 @@ export const createConferenceController = async (req, res) => {
 
       if (!targetUser) {
         return res.status(404).json({
-          message: `No account found for "${organizerEmail}". The organizer must have a PaperDesk account before a conference can be assigned to them.`,
+          message: `No account found for "${organizerEmail}". The Editor must have a PaperDesk account before a conference can be assigned to them.`,
         });
       }
 

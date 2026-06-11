@@ -1,4 +1,4 @@
 # dependencies
-node_modules
-.envbuild/
+node_modules/
+build/
 .env
