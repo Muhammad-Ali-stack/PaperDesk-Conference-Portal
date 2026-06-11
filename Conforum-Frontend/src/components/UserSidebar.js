@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/Auth";
 import { cn } from "../lib/utils";
@@ -51,15 +51,59 @@ const getInitialExpanded = () => {
 const UserSidebar = () => {
   const [auth, , rolesLoaded, fetchRoles] = useAuth();
   const [expanded, setExpanded] = useState(getInitialExpanded);
+  const pollingIntervalRef = useRef(null);
+  const lastFetchTimeRef = useRef(0);
 
+  // Fetch roles with debouncing to avoid too many requests
+  const refetchRoles = (force = false) => {
+    if (!auth?.user?._id) return;
+    
+    const now = Date.now();
+    // Only refetch if 5+ seconds have passed since last fetch (or force is true)
+    if (force || now - lastFetchTimeRef.current > 5000) {
+      fetchRoles(auth.user._id);
+      lastFetchTimeRef.current = now;
+    }
+  };
+
+  // 1. Fetch roles when component mounts or when auth changes
   useEffect(() => {
-    const handleRolesUpdated = () => {
-      if (auth?.user?._id) {
-        fetchRoles(auth.user._id);
+    refetchRoles(true);
+  }, [auth?.user?._id]);
+
+  // 2. Refetch roles when page becomes visible (user tabs back)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refetchRoles(true);
       }
     };
-    window.addEventListener("roles-updated", handleRolesUpdated);
-    return () => window.removeEventListener("roles-updated", handleRolesUpdated);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [auth?.user?._id, fetchRoles]);
+
+  // 3. Refetch roles when window comes into focus
+  useEffect(() => {
+    const handleFocus = () => {
+      refetchRoles(true);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [auth?.user?._id, fetchRoles]);
+
+  // 4. Optional: Poll roles every 30 seconds for real-time updates
+  useEffect(() => {
+    pollingIntervalRef.current = setInterval(() => {
+      refetchRoles();
+    }, 30000); // 30 seconds
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, [auth?.user?._id, fetchRoles]);
 
   const toggleExpanded = () => {
