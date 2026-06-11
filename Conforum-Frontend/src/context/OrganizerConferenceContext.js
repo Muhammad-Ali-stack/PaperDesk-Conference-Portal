@@ -18,9 +18,10 @@ export const OrganizerConferenceProvider = ({ children }) => {
     }
   });
   const [loading, setLoading] = useState(true);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false); //  Track dropdown state
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  //  Function to fetch conferences with smart comparison
+  // Fetch organizer conferences for the current user.
+  // Only updates state if the data actually changed to prevent unnecessary re-renders.
   const fetchConferences = async () => {
     if (!userId) {
       setLoading(false);
@@ -38,13 +39,13 @@ export const OrganizerConferenceProvider = ({ children }) => {
         status: conf.status || ""
       }));
 
-      //  Only update state if data actually changed (prevents unnecessary re-renders)
       setConferences(prevConferences => {
         const hasChanged = JSON.stringify(prevConferences) !== JSON.stringify(mappedList);
         return hasChanged ? mappedList : prevConferences;
       });
 
-      // Auto-select first conference if none selected or saved selection no longer exists
+      // Keep the saved selection if it still exists in the new list,
+      // otherwise fall back to the first conference.
       setSelectedConference(prev => {
         if (prev && mappedList.some(c => c.id === prev.id)) return prev;
         return mappedList[0] ?? null;
@@ -57,39 +58,28 @@ export const OrganizerConferenceProvider = ({ children }) => {
     }
   };
 
-  //  Initial fetch on mount or userId change
+  // Fetch on mount and whenever the logged-in user changes.
   useEffect(() => {
     fetchConferences();
   }, [userId]);
 
-  //  POLLING: Refetch every 30 seconds (increased from 10 for smoother UX)
-  // Skip refetch if dropdown is open to avoid stuttering
+  // Poll every 10 minutes for conference updates.
+  // Skips the refetch while the dropdown is open to avoid UI stuttering.
   useEffect(() => {
     if (!userId) return;
 
-    console.log("[OrganizerConferenceProvider] Starting conference polling (30s interval)...");
-
-    // Fetch immediately
     fetchConferences();
 
-    // Then fetch every 30 seconds
     const pollInterval = setInterval(() => {
-      //  Skip refetch if dropdown is open
       if (!isDropdownOpen) {
-        console.log("[OrganizerConferenceProvider] Polling for conference updates...");
         fetchConferences();
-      } else {
-        console.log("[OrganizerConferenceProvider] Skipping poll - dropdown is open");
       }
-    }, 600000); // 30 seconds (was 10)
+    }, 600000);
 
-    // Cleanup interval on unmount
-    return () => {
-      clearInterval(pollInterval);
-      console.log("[OrganizerConferenceProvider] Polling stopped");
-    };
-  }, [userId, isDropdownOpen]); //  Add isDropdownOpen to dependencies
+    return () => clearInterval(pollInterval);
+  }, [userId, isDropdownOpen]);
 
+  // Persist the selected conference to localStorage so it survives page reloads.
   const selectConference = (conf) => {
     setSelectedConference(conf);
     localStorage.setItem("organizer_selected_conference", JSON.stringify(conf));
@@ -105,8 +95,8 @@ export const OrganizerConferenceProvider = ({ children }) => {
         conferenceName: selectedConference?.conference_name ?? "",
         loading,
         refetchConferences: fetchConferences,
-        isDropdownOpen, //  Export dropdown state
-        setIsDropdownOpen, //  Export setter so components can update it
+        isDropdownOpen,
+        setIsDropdownOpen,
       }}
     >
       {children}
