@@ -55,7 +55,7 @@ function AuthorForm({ conferenceName }) {
   const [fetchedConferenceName, setFetchedConferenceName] = useState("");
   const [conferenceMode, setConferenceMode] = useState("");
   const [loading, setLoading] = useState(true);
-  const [auth] = useAuth();
+const [auth, , , fetchRoles] = useAuth();
   const fileInputRef = useRef(null);
 
   // Stores the compliance report returned from the API after PDF upload.
@@ -368,10 +368,8 @@ function AuthorForm({ conferenceName }) {
       // Notify the sidebar to re-fetch roles from the server.
       // The backend assigns the "author" role on first submission, so we
       // dispatch this event to update the sidebar without a re-login.
-      window.dispatchEvent(new CustomEvent("roles-updated"));
-
-      // Navigate directly to the papers list so the user sees their submission.
-      navigate("/userdashboard/papers");
+     await fetchRoles(auth?.user?._id);
+navigate("/userdashboard/papers");
 
     } catch (error) {
       // If the backend returns a fresh compliance report on error, update it.

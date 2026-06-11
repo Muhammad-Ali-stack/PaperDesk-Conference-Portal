@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/Auth";
 import { cn } from "../lib/utils";
@@ -8,6 +8,11 @@ import {
 } from "lucide-react";
 import OrganizerConferenceSelector from "./OrganizerConferenceSelector";
 
+// ------------------------------------------------------------------
+// NavItem
+// A single sidebar link. Renders icon + label when expanded,
+// icon only (centered) when collapsed.
+// ------------------------------------------------------------------
 const NavItem = ({ to, icon: Icon, label, expanded }) => (
   <NavLink
     to={to}
@@ -20,16 +25,15 @@ const NavItem = ({ to, icon: Icon, label, expanded }) => (
       )
     }
   >
-    <Icon
-      className={cn(
-        "h-4 w-4 flex-shrink-0",
-        !expanded && "mx-auto"
-      )}
-    />
+    <Icon className={cn("h-4 w-4 flex-shrink-0", !expanded && "mx-auto")} />
     {expanded && <span className="truncate">{label}</span>}
   </NavLink>
 );
 
+// ------------------------------------------------------------------
+// SectionLabel
+// Shows a text heading when expanded, a thin divider when collapsed.
+// ------------------------------------------------------------------
 const SectionLabel = ({ label, expanded }) =>
   expanded ? (
     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 px-3 mb-1 mt-4 first:mt-0">
@@ -39,6 +43,11 @@ const SectionLabel = ({ label, expanded }) =>
     <div className="h-px bg-border mx-3 my-2" />
   );
 
+// ------------------------------------------------------------------
+// getInitialExpanded
+// Reads the sidebar's last known state from localStorage.
+// Defaults to expanded (true) if nothing is saved.
+// ------------------------------------------------------------------
 const getInitialExpanded = () => {
   try {
     const saved = localStorage.getItem("sidebar-expanded");
@@ -48,20 +57,20 @@ const getInitialExpanded = () => {
   }
 };
 
+// ------------------------------------------------------------------
+// UserSidebar
+// Fixed left sidebar. Reads roles directly from AuthContext.
+// Role sections (Organizer, Reviewer, Author) are shown or hidden
+// based on what the context currently holds -- no event listeners
+// needed because AuthContext is the single source of truth.
+// ------------------------------------------------------------------
 const UserSidebar = () => {
-  const [auth, , rolesLoaded, fetchRoles] = useAuth();
+  // rolesLoaded: true once the initial fetchRoles call has resolved,
+  // prevents flickering where all role sections briefly appear.
+  const [auth, , rolesLoaded] = useAuth();
   const [expanded, setExpanded] = useState(getInitialExpanded);
 
-  useEffect(() => {
-    const handleRolesUpdated = () => {
-      if (auth?.user?._id) {
-        fetchRoles(auth.user._id);
-      }
-    };
-    window.addEventListener("roles-updated", handleRolesUpdated);
-    return () => window.removeEventListener("roles-updated", handleRolesUpdated);
-  }, [auth?.user?._id, fetchRoles]);
-
+  // Persist the expanded/collapsed preference across page reloads.
   const toggleExpanded = () => {
     setExpanded((prev) => {
       const next = !prev;
@@ -72,6 +81,9 @@ const UserSidebar = () => {
     });
   };
 
+  // Returns true only after roles have loaded AND the user has the given role.
+  // Guards against the sidebar flickering role sections before the first
+  // fetchRoles response arrives.
   const hasRole = (role) =>
     rolesLoaded && auth?.roles?.some((r) => r.role === role);
 
@@ -80,10 +92,10 @@ const UserSidebar = () => {
   return (
     <>
       {/*
-        Spacer div — takes up the same width as the fixed sidebar so the
-        content in DashboardLayout is pushed right by the correct amount.
-        Fixed elements are out of normal flow so without this spacer the
-        main content would slide under the sidebar.
+        Spacer div -- occupies the same width as the fixed sidebar so that
+        the main content area is pushed to the right by the correct amount.
+        Fixed elements are removed from normal flow, so without this the
+        page content would scroll underneath the sidebar.
       */}
       <div
         className={cn(
@@ -94,9 +106,9 @@ const UserSidebar = () => {
       />
 
       {/*
-        Fixed sidebar — always in the same spot, completely unaffected by
-        page content height, scroll position, or layout reflows.
-        top-16 matches the header height (4rem / 64px).
+        Fixed sidebar -- always anchored to the top-left of the viewport,
+        unaffected by page scroll or layout reflows.
+        top-16 = 4rem, matching the header height.
       */}
       <aside
         style={{ willChange: "width", contain: "layout style" }}
@@ -107,7 +119,7 @@ const UserSidebar = () => {
           sidebarWidth
         )}
       >
-        {/* Header */}
+        {/* Sidebar header -- shows "Workspace" label and collapse toggle */}
         <div className="flex items-center justify-between h-14 px-3 border-b shrink-0">
           {expanded && (
             <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -128,17 +140,29 @@ const UserSidebar = () => {
           </button>
         </div>
 
-        {/* Navigation — only this inner element scrolls, not the sidebar itself */}
+        {/*
+          Scrollable nav area -- only this inner element scrolls,
+          keeping the header and footer always visible.
+        */}
         <nav className="flex-1 p-2 overflow-y-auto overflow-x-hidden space-y-0.5 custom-scrollbar">
 
+          {/* General section -- always visible to every logged-in user */}
           <SectionLabel label="General" expanded={expanded} />
           <NavItem to="/userdashboard/user-dashboard" icon={LayoutDashboard} label="Dashboard"      expanded={expanded} />
           <NavItem to="/userdashboard/user-profile"   icon={User}            label="Profile"        expanded={expanded} />
           <NavItem to="/userdashboard/roles"          icon={Settings}        label="My Conferences" expanded={expanded} />
 
+          {/*
+            Organizer section -- rendered only when the user holds the
+            "organizer" role on at least one conference.
+            fetchRoles is called in AuthorForm after paper submission,
+            so this section appears/disappears without a re-login.
+          */}
           {hasRole("organizer") && (
             <>
               <SectionLabel label="Editor" expanded={expanded} />
+
+              {/* Conference selector only makes sense when the sidebar is expanded */}
               {expanded && (
                 <div className="px-1 pb-1">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 px-2 mb-1.5">
@@ -147,6 +171,7 @@ const UserSidebar = () => {
                   <OrganizerConferenceSelector />
                 </div>
               )}
+
               <NavItem to="/userdashboard/organizer-dashboard"  icon={Globe}    label="Overview"          expanded={expanded} />
               <NavItem to="/userdashboard/invite-reviewers"     icon={Users}    label="Invite Reviewers"  expanded={expanded} />
               <NavItem to="/userdashboard/accepted-invitations" icon={Users}    label="Accepted Invites"  expanded={expanded} />
@@ -159,6 +184,11 @@ const UserSidebar = () => {
             </>
           )}
 
+          {/*
+            Reviewer section -- rendered only when the user holds the
+            "reviewer" role. Assigned by an organizer via invite flow,
+            not by any action in this component.
+          */}
           {hasRole("reviewer") && (
             <>
               <SectionLabel label="Reviewer" expanded={expanded} />
@@ -167,6 +197,12 @@ const UserSidebar = () => {
             </>
           )}
 
+          {/*
+            Author section -- rendered only when the user holds the
+            "author" role. The backend assigns this role on first paper
+            submission. AuthorForm calls fetchRoles after a successful
+            submit so this section appears immediately without re-login.
+          */}
           {hasRole("author") && (
             <>
               <SectionLabel label="Author" expanded={expanded} />
@@ -177,7 +213,7 @@ const UserSidebar = () => {
 
         </nav>
 
-        {/* Footer */}
+        {/* Sidebar footer -- version stamp, only shown when expanded */}
         {expanded && (
           <div className="p-3 border-t shrink-0">
             <p className="text-[10px] font-bold text-center text-muted-foreground/50 uppercase tracking-widest">
