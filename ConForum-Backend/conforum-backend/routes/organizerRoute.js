@@ -13,6 +13,7 @@ import {
   fetchAcceptedPapersController,
   proceedingsPdfGenerationController,
   getOrganizerConferencesController,
+  updateAssignmentDueDateController,
 } from "../controller/organizerController.js";
 import upload from "../middleware/multer.js";
 import { requireLogin, isOrganizerRole } from "../middleware/authMiddleware.js";
@@ -24,8 +25,11 @@ const router = express.Router();
 /** POST /assign-papers/:id — Auto-assigns pending papers to reviewers by expertise. */
 router.post("/assign-papers/:id", requireLogin, isOrganizerRole, assignPapersToReviewersController);
 
-/** POST /assign-paper-manual — Manually assigns reviewers to a specific paper. */
+/** POST /assign-paper-manual — Manually assigns reviewers to a specific paper, with optional due date. */
 router.post("/assign-paper-manual", requireLogin, manuallyAssignPaperController);
+
+/** PATCH /assignments/:paperId/due-date — Updates the review due date for all reviewers of a paper. */
+router.patch("/assignments/:paperId/due-date", requireLogin, updateAssignmentDueDateController);
 
 /** GET /assigned-papers/:conferenceId — Returns all assignments for a conference. */
 router.get("/assigned-papers/:conferenceId", requireLogin, getAssignmentsByConferenceController);

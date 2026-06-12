@@ -3,6 +3,7 @@ import { sendMail } from "../config/mailer.js";
 import { titleCase } from "title-case";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import PQueue from "p-queue";
+import { fromZonedTime } from "date-fns-tz"; // npm install date-fns date-fns-tz
 
 // Limits concurrent proceedings PDF generation jobs to 2 at a time.
 const proceedingsQueue = new PQueue({ concurrency: 2 });
@@ -417,9 +418,10 @@ export const getReviewManagementDataController = async (req, res) => {
       .select("id, paper_id, reviewer_id, overall_recommendation, technical_confidence, comments_for_authors, comments_for_organizers")
       .in("paper_id", paperIds);
 
+    // Also fetch due_date from assignments so it can be included in the table data.
     const { data: allAssignments } = await supabase
       .from("assignments")
-      .select("paper_id, reviewer_id, users!reviewer_id(name)")
+      .select("paper_id, reviewer_id, due_date, users!reviewer_id(name)")
       .eq("conference_id", conferenceId);
 
     const tableData = (papers || []).map((paper) => {
@@ -442,6 +444,7 @@ export const getReviewManagementDataController = async (req, res) => {
             : "0.00",
           commentsForOrganizers: review?.comments_for_organizers || null,
           commentsForAuthors: review?.comments_for_authors || null,
+          dueDate: assignment.due_date || null, // UTC — frontend converts to local time
         };
       });
 
@@ -457,6 +460,10 @@ export const getReviewManagementDataController = async (req, res) => {
         email: pa.authors?.email,
       }));
 
+      // Use the due_date from the first assignment as the paper-level due date
+      // (all assignments for a paper share the same due date).
+      const paperDueDate = paperAssignments[0]?.due_date || null;
+
       return {
         paperId: paper.id,
         title: paper.title,
@@ -470,6 +477,7 @@ export const getReviewManagementDataController = async (req, res) => {
         organizerCommentsForAuthors: paper.organizer_comments_for_authors ?? null,
         authors,
         conferenceName: paper.conference_name,
+        dueDate: paperDueDate, // UTC ISO string — frontend converts to local time
       };
     });
 
@@ -675,11 +683,17 @@ export const updateFinalDecisionController = async (req, res) => {
  * A paper may have at most 3 reviewers assigned in total.
  * A plagiarism score must be on record (or provided in this request) before assignment.
  *
+ * Accepts an optional dueDate (local datetime string) and timezone (IANA string).
+ * The due date is converted from the organizer's local timezone to UTC before storage.
+ * All reviewers assigned to a paper share the same due date.
+ *
  * @route POST /api/organizer/assign-paper-manual
- * @param {string}   req.body.paperId       - Paper UUID.
- * @param {string}   req.body.conferenceId  - Conference UUID.
- * @param {string[]} req.body.reviewerIds   - Array of reviewer user IDs (max 3).
+ * @param {string}   req.body.paperId           - Paper UUID.
+ * @param {string}   req.body.conferenceId      - Conference UUID.
+ * @param {string[]} req.body.reviewerIds       - Array of reviewer user IDs (max 3).
  * @param {number}   [req.body.plagiarismScore] - Required if no score is on record.
+ * @param {string}   [req.body.dueDate]         - Local datetime string e.g. "2025-09-01T23:59".
+ * @param {string}   [req.body.timezone]        - IANA timezone e.g. "Asia/Karachi".
  * @returns {200} Assignment results.
  * @returns {400} Validation error or paper already at max reviewers.
  * @returns {404} Paper not found.
@@ -687,7 +701,7 @@ export const updateFinalDecisionController = async (req, res) => {
  */
 export const manuallyAssignPaperController = async (req, res) => {
   try {
-    const { paperId, conferenceId, plagiarismScore } = req.body;
+    const { paperId, conferenceId, plagiarismScore, dueDate, timezone } = req.body;
 
     let reviewerIds = req.body.reviewerIds;
     if (!reviewerIds && req.body.reviewerId) {
@@ -703,6 +717,17 @@ export const manuallyAssignPaperController = async (req, res) => {
     }
     if (reviewerIds.length > 3) {
       return res.status(400).json({ success: false, message: "Cannot assign more than 3 reviewers at once." });
+    }
+
+    // Convert the organizer's local due date to UTC for storage.
+    // Both dueDate and timezone must be present together to be applied.
+    let dueDateUTC = null;
+    if (dueDate && timezone) {
+      try {
+        dueDateUTC = fromZonedTime(dueDate, timezone).toISOString();
+      } catch (_) {
+        return res.status(400).json({ success: false, message: "Invalid dueDate or timezone value." });
+      }
     }
 
     const uniqueReviewerIds = [...new Set(reviewerIds)];
@@ -782,7 +807,12 @@ export const manuallyAssignPaperController = async (req, res) => {
 
       const { error: insertError } = await supabase
         .from("assignments")
-        .insert({ paper_id: paperId, reviewer_id: reviewerId, conference_id: conferenceId });
+        .insert({
+          paper_id: paperId,
+          reviewer_id: reviewerId,
+          conference_id: conferenceId,
+          due_date: dueDateUTC, // null if organizer didn't set one — that's fine
+        });
 
       if (insertError) {
         results.push({ reviewerId, status: "failed", reason: insertError.message });
@@ -822,11 +852,64 @@ export const manuallyAssignPaperController = async (req, res) => {
         newlyAssigned: newlyAssignedCount,
         totalAssigned: alreadyAssignedIds.length,
         plagiarismScore: resolvedPlagiarismScore,
+        dueDate: dueDateUTC,
         results,
       },
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to assign reviewers to paper." });
+  }
+};
+
+/**
+ * Updates the review due date for all assignments of a specific paper.
+ * The organizer provides a local datetime and their IANA timezone.
+ * The value is converted to UTC before being stored so every reviewer's
+ * frontend can display it in their own local time.
+ *
+ * @route PATCH /api/organizer/assignments/:paperId/due-date
+ * @param {string} req.params.paperId  - Paper UUID.
+ * @param {string} req.body.dueDate    - Local datetime string e.g. "2025-09-01T23:59".
+ * @param {string} req.body.timezone   - IANA timezone string e.g. "Asia/Karachi".
+ * @returns {200} Updated due date in UTC.
+ * @returns {400} Validation error.
+ * @returns {500} Server error.
+ */
+export const updateAssignmentDueDateController = async (req, res) => {
+  try {
+    const { paperId } = req.params;
+    const { dueDate, timezone } = req.body;
+
+    if (!paperId) {
+      return res.status(400).json({ success: false, message: "paperId is required." });
+    }
+    if (!dueDate || !timezone) {
+      return res.status(400).json({ success: false, message: "dueDate and timezone are required." });
+    }
+
+    let dueDateUTC;
+    try {
+      dueDateUTC = fromZonedTime(dueDate, timezone).toISOString();
+    } catch (_) {
+      return res.status(400).json({ success: false, message: "Invalid dueDate or timezone value." });
+    }
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({ due_date: dueDateUTC })
+      .eq("paper_id", paperId);
+
+    if (error) {
+      return res.status(500).json({ success: false, message: "Failed to update due date." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Due date updated successfully for all reviewers of this paper.",
+      data: { dueDateUTC },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update due date." });
   }
 };
 
@@ -935,10 +1018,12 @@ export const getTechnicalWeightageController = async (req, res) => {
 
 /**
  * Returns reviewer assignment counts and reviewer details for a set of papers.
+ * Also returns the due_date (UTC) per assignment so the frontend can display
+ * it in each user's local timezone.
  *
  * @route POST /api/organizer/papers/assigned-reviewers
  * @param {string[]} req.body.paperIds - Array of paper UUIDs.
- * @returns {200} Map of paperId -> { assignedCount, reviewers }.
+ * @returns {200} Map of paperId -> { assignedCount, reviewers, dueDate }.
  * @returns {400} Invalid paperIds array.
  * @returns {500} Server error.
  */
@@ -952,7 +1037,7 @@ export const getAssignmentsByPaperController = async (req, res) => {
 
     const { data: assignments, error } = await supabase
       .from("assignments")
-      .select("paper_id, reviewer_id, users!reviewer_id(id, name, email)")
+      .select("paper_id, reviewer_id, due_date, users!reviewer_id(id, name, email)")
       .in("paper_id", paperIds);
 
     if (error) {
@@ -961,15 +1046,16 @@ export const getAssignmentsByPaperController = async (req, res) => {
 
     // Build a map indexed by paper_id for O(1) lookup on the frontend.
     const assignmentsByPaper = {};
-    (assignments || []).forEach(({ paper_id, reviewer_id, users }) => {
+    (assignments || []).forEach(({ paper_id, reviewer_id, due_date, users }) => {
       if (!assignmentsByPaper[paper_id]) {
-        assignmentsByPaper[paper_id] = { assignedCount: 0, reviewers: [] };
+        assignmentsByPaper[paper_id] = { assignedCount: 0, reviewers: [], dueDate: due_date || null };
       }
       assignmentsByPaper[paper_id].assignedCount += 1;
       assignmentsByPaper[paper_id].reviewers.push({
         reviewerId: reviewer_id,
         name: users?.name || "Unknown",
         email: users?.email || "",
+        dueDate: due_date || null, // UTC — frontend converts to local time
       });
     });
 

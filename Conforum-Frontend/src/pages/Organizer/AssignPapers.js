@@ -14,6 +14,7 @@ import {
   Users,
   ClipboardList,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 
@@ -65,7 +66,12 @@ const AssignPapersPage = () => {
   const [organizerCommentsForAuthors, setOrganizerCommentsForAuthors] = useState("");
   const [loadingPapers, setLoadingPapers] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [dueDate, setDueDate] = useState("");
+  const [updatingDueDate, setUpdatingDueDate] = useState(false);
   const intervalRef = useRef(null);
+
+  // Auto-detect organizer's timezone from browser — no user input needed
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const getPaperId = (paper) => paper?.id || paper?._id || null;
 
@@ -132,6 +138,7 @@ const AssignPapersPage = () => {
     setSelectedPaper(paper);
     setSelectedReviewers(["", "", ""]);
     setPlagiarismScore("");
+    setDueDate("");
     setOrganizerDecision("");
     setOrganizerCommentsForAuthors("");
     setModalMode("assign_reviewers");
@@ -147,6 +154,15 @@ const AssignPapersPage = () => {
       const pa = assignmentsRes.data?.data?.[paperId];
       setAssignedReviewerIds((pa?.reviewers || []).map((r) => r.reviewerId));
       setAssignedReviewersCount(pa?.assignedCount || 0);
+
+      // Pre-fill due date if one already exists for this paper (convert UTC -> local)
+      if (pa?.dueDate) {
+        const localDt = new Date(pa.dueDate);
+        // Format to "YYYY-MM-DDTHH:mm" for datetime-local input
+        const pad = (n) => String(n).padStart(2, "0");
+        const formatted = `${localDt.getFullYear()}-${pad(localDt.getMonth() + 1)}-${pad(localDt.getDate())}T${pad(localDt.getHours())}:${pad(localDt.getMinutes())}`;
+        setDueDate(formatted);
+      }
     } catch (error) {
       console.error("Modal data fetch error:", error);
       toast.error("Failed to load reviewer data.");
@@ -172,6 +188,24 @@ const AssignPapersPage = () => {
     setOrganizerDecision("");
     setOrganizerCommentsForAuthors("");
     setSelectedReviewers(["", "", ""]);
+  };
+
+  // Update due date for already-assigned reviewers without re-assigning
+  const handleUpdateDueDate = async () => {
+    const paperId = getPaperId(selectedPaper);
+    if (!paperId) return;
+    setUpdatingDueDate(true);
+    try {
+      await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, {
+        dueDate,
+        timezone,
+      });
+      toast.success("Due date updated for all reviewers.");
+    } catch {
+      toast.error("Failed to update due date.");
+    } finally {
+      setUpdatingDueDate(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -206,6 +240,12 @@ const AssignPapersPage = () => {
 
         const body = { paperId, reviewerIds: chosenIds, conferenceId };
         if (!existingPlagiarismScore) body.plagiarismScore = parseFloat(plagiarismScore);
+
+        // Include due date + timezone if the organizer set one
+        if (dueDate) {
+          body.dueDate = dueDate;
+          body.timezone = timezone;
+        }
 
         const res = await axios.post("/api/organizer/assign-paper-manual", body);
         if (res.data.success) {
@@ -628,6 +668,8 @@ const AssignPapersPage = () => {
                     {slotsAvailable} slot{slotsAvailable !== 1 ? "s" : ""} available — Currently
                     assigned: {assignedReviewersCount}/3
                   </p>
+
+                  {/* Reviewer dropdowns */}
                   {Array.from({ length: Math.min(slotsAvailable, 3) }).map((_, slotIndex) => {
                     const excludedIds = getExcludedIds(slotIndex);
                     return (
@@ -652,11 +694,53 @@ const AssignPapersPage = () => {
                       </select>
                     );
                   })}
+
                   {!atLeastOneReviewerChosen && (
                     <p className="text-xs text-amber-600">
                       Select at least one reviewer to proceed.
                     </p>
                   )}
+
+                  {/* ── Due Date field ── */}
+                  <div className="pt-1">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Review Due Date
+                      </label>
+                      <div className="relative group">
+                        <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10 w-56">
+                          <div className="bg-popover border border-border text-popover-foreground text-xs rounded-md px-3 py-2 shadow-lg leading-relaxed">
+                            If left empty, the reviewer has no deadline and can submit their review at any time.
+                            <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-border" />
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-xs text-muted-foreground font-normal normal-case ml-auto">
+                        Your timezone · {timezone}
+                      </span>
+                    </div>
+
+                    <input
+                      type="datetime-local"
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                      disabled={submitting}
+                      className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 text-foreground"
+                    />
+
+                    {/* Show "Update Due Date" button only when paper already has reviewers */}
+                    {assignedReviewersCount > 0 && (
+                      <button
+                        type="button"
+                        disabled={updatingDueDate || !dueDate}
+                        onClick={handleUpdateDueDate}
+                        className="mt-2 w-full text-sm border border-teal-500 text-teal-600 dark:text-teal-400 rounded-md py-1.5 hover:bg-teal-50 dark:hover:bg-teal-950/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {updatingDueDate ? "Updating..." : "Update Due Date for Existing Reviewers"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

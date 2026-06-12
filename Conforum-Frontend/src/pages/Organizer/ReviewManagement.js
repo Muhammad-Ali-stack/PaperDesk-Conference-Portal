@@ -9,7 +9,55 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
-import { ChevronDown, ChevronUp, FileText, RefreshCw, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, FileText, RefreshCw, ShieldCheck, Clock, AlertTriangle, Pencil, X, Check } from "lucide-react";
+
+// ─── Due Date Helpers ─────────────────────────────────────────────────────────
+
+function formatDueDate(dueDateUTC) {
+  if (!dueDateUTC) return null;
+  return new Date(dueDateUTC).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function getDueDateStatus(dueDateUTC) {
+  if (!dueDateUTC) return null;
+  const now = new Date();
+  const due = new Date(dueDateUTC);
+  const hoursLeft = (due - now) / (1000 * 60 * 60);
+  if (hoursLeft < 0)   return "overdue";
+  if (hoursLeft <= 24) return "urgent";
+  if (hoursLeft <= 72) return "soon";
+  return "ok";
+}
+
+function DueDatePill({ dueDateUTC }) {
+  const formatted = formatDueDate(dueDateUTC);
+  const status    = getDueDateStatus(dueDateUTC);
+
+  if (!formatted) return null; // don't show anything if no due date set
+
+  const styles = {
+    overdue: "text-red-600 bg-red-50 border-red-200",
+    urgent:  "text-orange-600 bg-orange-50 border-orange-200",
+    soon:    "text-yellow-700 bg-yellow-50 border-yellow-200",
+    ok:      "text-green-700 bg-green-50 border-green-200",
+  };
+
+  const Icon = status === "overdue" || status === "urgent" ? AlertTriangle : Clock;
+
+  const label = status === "overdue" ? "Overdue" : "Due";
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${styles[status]}`}>
+      <Icon className="w-2.5 h-2.5" />
+      {label}: {formatted}
+    </span>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 const ReviewManagement = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
@@ -20,6 +68,12 @@ const ReviewManagement = () => {
   const [expandedReviewer, setExpandedReviewer] = useState(null);
   const [submissionStatuses, setSubmissionStatuses] = useState({});
   const [activeTab, setActiveTab] = useState("reviewers");
+
+  // Due date editing — keyed by paperId
+  const [editingDueDateFor, setEditingDueDateFor] = useState(null);
+  const [dueDateInputs, setDueDateInputs] = useState({});
+  const [savingDueDate, setSavingDueDate] = useState(false);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   useEffect(() => {
     if (conferenceId) {
@@ -110,6 +164,50 @@ const ReviewManagement = () => {
     }
   };
 
+
+  const handleEditDueDate = (paperId, currentDueDateUTC) => {
+    // Convert UTC -> local datetime-local string for the input
+    let localValue = "";
+    if (currentDueDateUTC) {
+      const d = new Date(currentDueDateUTC);
+      const pad = (n) => String(n).padStart(2, "0");
+      localValue = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    setDueDateInputs((prev) => ({ ...prev, [paperId]: localValue }));
+    setEditingDueDateFor(paperId);
+  };
+
+  const handleCancelEditDueDate = () => {
+    setEditingDueDateFor(null);
+  };
+
+  const handleSaveDueDate = async (paperId) => {
+    const dueDate = dueDateInputs[paperId];
+    setSavingDueDate(true);
+    try {
+      await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, {
+        dueDate: dueDate || null,
+        timezone,
+      });
+      toast.success("Due date updated successfully.");
+      setEditingDueDateFor(null);
+      // Update local state so header pill refreshes immediately
+      setTableData((prev) =>
+        prev.map((p) =>
+          p.paperId === paperId
+            ? { ...p, dueDate: dueDate ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString() : null,
+                reviewers: p.reviewers?.map((r) => ({ ...r, dueDate: dueDate ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString() : null })) }
+            : p
+        )
+      );
+      await fetchData(); // re-fetch to get accurate UTC from backend
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update due date.");
+    } finally {
+      setSavingDueDate(false);
+    }
+  };
   const toggleReviewer = (key) => {
     setExpandedReviewer((prev) => (prev === key ? null : key));
   };
@@ -219,11 +317,10 @@ const ReviewManagement = () => {
     }
 
     return papersList.map((paper, index) => {
-      const currentPaperId = paper.paperId;
+      const currentPaperId    = paper.paperId;
       const currentPaperTitle = paper.title;
-      const status = submissionStatuses[currentPaperId];
+      const status            = submissionStatuses[currentPaperId];
 
-      // True when organizer gave the decision directly with no reviewers assigned
       const wasReviewedByOrganizer =
         paper.decision &&
         paper.decision !== "pending" &&
@@ -238,13 +335,16 @@ const ReviewManagement = () => {
 
       const plagiarismScore = paper.plagiarismScore ?? null;
 
+      // Paper-level due date — all reviewers share the same due date per README
+      const paperDueDate = paper.dueDate ?? paper.reviewers?.[0]?.dueDate ?? null;
+
       return (
         <Card key={currentPaperId} className="overflow-hidden">
           {/* ----------------------------------------------------------------
               Card header
           ---------------------------------------------------------------- */}
           <div className="bg-teal-700 dark:bg-teal-900 text-white px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm opacity-70">#{index + 1}</span>
               <span className="font-semibold text-base">{paper.title}</span>
               {paper.status === "resubmitted" && (
@@ -256,6 +356,25 @@ const ReviewManagement = () => {
                 <span className="inline-flex items-center gap-1 text-xs bg-white/20 px-2 py-0.5 rounded-full font-medium">
                   <ShieldCheck className="h-3 w-3" />
                   Reviewed by Editor
+                </span>
+              )}
+              {/* ── Due date pill in header ── */}
+              {paperDueDate && (
+                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                  getDueDateStatus(paperDueDate) === "overdue"
+                    ? "bg-red-500/80 text-white"
+                    : getDueDateStatus(paperDueDate) === "urgent"
+                    ? "bg-orange-400/80 text-white"
+                    : getDueDateStatus(paperDueDate) === "soon"
+                    ? "bg-yellow-400/80 text-gray-900"
+                    : "bg-white/20 text-white"
+                }`}>
+                  {getDueDateStatus(paperDueDate) === "overdue" || getDueDateStatus(paperDueDate) === "urgent"
+                    ? <AlertTriangle className="h-3 w-3" />
+                    : <Clock className="h-3 w-3" />
+                  }
+                  {getDueDateStatus(paperDueDate) === "overdue" ? "Overdue" : "Due"}:{" "}
+                  {formatDueDate(paperDueDate)}
                 </span>
               )}
             </div>
@@ -298,11 +417,6 @@ const ReviewManagement = () => {
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Scores
                 </p>
-
-                {/*
-                  FIX: Avg Technical Score is hidden for organizer-reviewed papers.
-                  There are no reviewer scores to average, so showing it is misleading.
-                */}
                 {!wasReviewedByOrganizer && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Avg Technical Score</span>
@@ -311,7 +425,6 @@ const ReviewManagement = () => {
                     </span>
                   </div>
                 )}
-
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">IEEE Compliance</span>
                   <span className="font-semibold text-foreground">
@@ -326,7 +439,6 @@ const ReviewManagement = () => {
                 </div>
               </div>
 
-              {/* System recommendation — only useful when reviewer scores exist */}
               {!wasReviewedByOrganizer && (!paper.decision || paper.decision === "pending") && (
                 <div className="bg-muted/30 rounded-lg p-3 border border-border">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
@@ -356,12 +468,10 @@ const ReviewManagement = () => {
             -------------------------------------------------------------- */}
             <div className="lg:col-span-1">
               {wasReviewedByOrganizer ? (
-                /* ---- Organizer-reviewed branch ---- */
                 <div className="space-y-3">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                     Review
                   </p>
-
                   <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/20 overflow-hidden">
                     <div className="flex items-center gap-2 px-3 py-2 bg-teal-100/60 dark:bg-teal-900/40 border-b border-teal-200 dark:border-teal-800">
                       <ShieldCheck className="h-4 w-4 text-teal-600 dark:text-teal-400 flex-shrink-0" />
@@ -390,11 +500,6 @@ const ReviewManagement = () => {
                       )}
                     </div>
                   </div>
-
-                  {/*
-                    FIX: Plain <button> instead of shadcn <Button variant="ghost" p-0 h-auto>
-                    because zero-dimension utility classes can collapse the element invisibly.
-                  */}
                   <button
                     type="button"
                     onClick={(e) => handleViewFullReviews(currentPaperId, currentPaperTitle, e)}
@@ -405,7 +510,6 @@ const ReviewManagement = () => {
                   </button>
                 </div>
               ) : (
-                /* ---- Reviewer-assigned branch ---- */
                 <>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                     Reviewers ({paper.reviewers?.length || 0})
@@ -417,20 +521,37 @@ const ReviewManagement = () => {
                   ) : (
                     <div className="space-y-3">
                       {paper.reviewers?.map((reviewer, i) => {
-                        const key = `${currentPaperId}-${i}`;
+                        const key        = `${currentPaperId}-${i}`;
                         const isExpanded = expandedReviewer === key;
                         const hasComments =
                           reviewer.commentsForAuthors || reviewer.commentsForOrganizers;
+                        // Per-reviewer due date (falls back to paper-level)
+                        const reviewerDueDate = reviewer.dueDate ?? paperDueDate;
+                        const dueDateStatus   = getDueDateStatus(reviewerDueDate);
 
                         return (
-                          <Card key={i} className="overflow-hidden border-border">
-                            <div className="flex items-center justify-between px-3 py-2 bg-muted/20">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-medium text-foreground">
-                                  {reviewer.name}
-                                </span>
-                                {getStatusBadge(reviewer.status)}
-                                {getRecommendationBadge(reviewer.recommendation)}
+                          <Card
+                            key={i}
+                            className={`overflow-hidden border-border ${
+                              dueDateStatus === "overdue" ? "border-red-200" : ""
+                            }`}
+                          >
+                            <div className={`flex items-center justify-between px-3 py-2 ${
+                              dueDateStatus === "overdue"
+                                ? "bg-red-50/60 dark:bg-red-950/20"
+                                : "bg-muted/20"
+                            }`}>
+                              <div className="flex flex-col gap-1 flex-wrap">
+                                {/* Top row: name + status + recommendation */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium text-foreground">
+                                    {reviewer.name}
+                                  </span>
+                                  {getStatusBadge(reviewer.status)}
+                                  {getRecommendationBadge(reviewer.recommendation)}
+                                </div>
+                                {/* Due date pill below name */}
+                                <DueDatePill dueDateUTC={reviewerDueDate} />
                               </div>
                               {reviewer.status === "reviewed" && hasComments && (
                                 <Button
@@ -486,7 +607,6 @@ const ReviewManagement = () => {
                       })}
                     </div>
                   )}
-
                   <button
                     type="button"
                     onClick={(e) => handleViewFullReviews(currentPaperId, currentPaperTitle, e)}
@@ -500,9 +620,76 @@ const ReviewManagement = () => {
             </div>
 
             {/* --------------------------------------------------------------
-                Column 3 — Final Decision
+                Column 3 — Due Date Editor + Final Decision
             -------------------------------------------------------------- */}
             <div>
+              {/* ── Edit Due Date ── */}
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                Review Due Date
+              </p>
+              {editingDueDateFor === currentPaperId ? (
+                <div className="mb-4 space-y-2">
+                  <input
+                    type="datetime-local"
+                    value={dueDateInputs[currentPaperId] || ""}
+                    onChange={(e) =>
+                      setDueDateInputs((prev) => ({ ...prev, [currentPaperId]: e.target.value }))
+                    }
+                    className="w-full text-xs rounded-md border border-border bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Timezone: {timezone}</p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs"
+                      onClick={() => handleSaveDueDate(currentPaperId)}
+                      disabled={savingDueDate}
+                    >
+                      <Check className="h-3 w-3 mr-1" />
+                      {savingDueDate ? "Saving..." : "Save"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 h-7 text-xs"
+                      onClick={handleCancelEditDueDate}
+                      disabled={savingDueDate}
+                    >
+                      <X className="h-3 w-3 mr-1" />
+                      Cancel
+                    </Button>
+                  </div>
+                  {dueDateInputs[currentPaperId] && (
+                    <button
+                      type="button"
+                      onClick={() => setDueDateInputs((prev) => ({ ...prev, [currentPaperId]: "" }))}
+                      className="text-[10px] text-red-500 hover:underline w-full text-left"
+                    >
+                      Clear due date (remove deadline)
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    {paperDueDate ? (
+                      <DueDatePill dueDateUTC={paperDueDate} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No deadline set</span>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs shrink-0"
+                    onClick={() => handleEditDueDate(currentPaperId, paperDueDate)}
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    {paperDueDate ? "Edit" : "Set"}
+                  </Button>
+                </div>
+              )}
+
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                 Final Decision
               </p>
@@ -617,11 +804,7 @@ const ReviewManagement = () => {
 
                 <TabsContent value="reviewers" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">
-                      {[1, 2, 3].map((i) => (
-                        <TableRowSkeleton key={i} />
-                      ))}
-                    </div>
+                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(reviewerReviewedPapers)}</div>
                   )}
@@ -629,11 +812,7 @@ const ReviewManagement = () => {
 
                 <TabsContent value="organizer" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">
-                      {[1, 2, 3].map((i) => (
-                        <TableRowSkeleton key={i} />
-                      ))}
-                    </div>
+                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(organizerReviewedPapers)}</div>
                   )}
@@ -641,11 +820,7 @@ const ReviewManagement = () => {
 
                 <TabsContent value="unreviewed" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">
-                      {[1, 2, 3].map((i) => (
-                        <TableRowSkeleton key={i} />
-                      ))}
-                    </div>
+                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(unreviewedPapers)}</div>
                   )}

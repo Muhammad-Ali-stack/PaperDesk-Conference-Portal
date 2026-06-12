@@ -7,7 +7,73 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { FileText, Download, CheckCircle, Info, RefreshCw } from "lucide-react";
+import { FileText, Download, CheckCircle, Info, RefreshCw, Clock, AlertTriangle } from "lucide-react";
+
+// ─── Due Date Helpers ────────────────────────────────────────────────────────
+
+function formatDueDate(dueDateUTC) {
+  if (!dueDateUTC) return null;
+  return new Date(dueDateUTC).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function getDueDateStatus(dueDateUTC) {
+  if (!dueDateUTC) return null;
+  const now = new Date();
+  const due = new Date(dueDateUTC);
+  const hoursLeft = (due - now) / (1000 * 60 * 60);
+
+  if (hoursLeft < 0)   return "overdue";   // past deadline
+  if (hoursLeft <= 24) return "urgent";    // < 24 hours left
+  if (hoursLeft <= 72) return "soon";      // < 3 days left
+  return "ok";
+}
+
+function DueDateBadge({ dueDateUTC }) {
+  const formatted = formatDueDate(dueDateUTC);
+  const status = getDueDateStatus(dueDateUTC);
+
+  if (!formatted) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Clock className="w-3 h-3" />
+        No deadline
+      </span>
+    );
+  }
+
+  const styles = {
+    overdue: "text-red-600 bg-red-50 border-red-200",
+    urgent:  "text-orange-600 bg-orange-50 border-orange-200",
+    soon:    "text-yellow-700 bg-yellow-50 border-yellow-200",
+    ok:      "text-green-700 bg-green-50 border-green-200",
+  };
+
+  const icons = {
+    overdue: <AlertTriangle className="w-3 h-3" />,
+    urgent:  <AlertTriangle className="w-3 h-3" />,
+    soon:    <Clock className="w-3 h-3" />,
+    ok:      <Clock className="w-3 h-3" />,
+  };
+
+  const labels = {
+    overdue: "Overdue",
+    urgent:  "Due soon",
+    soon:    "Due soon",
+    ok:      "Due",
+  };
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border font-medium ${styles[status]}`}>
+      {icons[status]}
+      {labels[status]}: {formatted}
+    </span>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 const AllPapersToReview = () => {
   const [assignedPapers, setAssignedPapers] = useState([]);
@@ -49,14 +115,14 @@ const AllPapersToReview = () => {
   };
 
   const reviewedCount = assignedPapers.filter(p => p.isReviewedBy?.includes(reviewerId)).length;
-  const pendingCount = assignedPapers.filter(p => !p.isReviewedBy?.includes(reviewerId) && p.finalDecision === "pending").length;
+  const pendingCount  = assignedPapers.filter(p => !p.isReviewedBy?.includes(reviewerId) && p.finalDecision === "pending").length;
 
   const getPlagiarismBadge = (paper) => {
     const score = paper.plagiarismScore ?? paper.organizer_plagiarism_score;
     if (score === undefined || score === null) return null;
-    if (score <= 15) return <Badge variant="success" className="text-xs">Plagiarism: {score}% (Low)</Badge>;
-    if (score <= 25) return <Badge variant="warning" className="text-xs">Plagiarism: {score}% (Moderate)</Badge>;
-    return <Badge variant="destructive" className="text-xs">Plagiarism: {score}% (High)</Badge>;
+    if (score <= 15) return <Badge variant="success"   className="text-xs">Plagiarism: {score}% (Low)</Badge>;
+    if (score <= 25) return <Badge variant="warning"   className="text-xs">Plagiarism: {score}% (Moderate)</Badge>;
+    return               <Badge variant="destructive" className="text-xs">Plagiarism: {score}% (High)</Badge>;
   };
 
   return (
@@ -84,7 +150,7 @@ const AllPapersToReview = () => {
 
           {loading ? (
             <div className="space-y-4">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
             </div>
           ) : assignedPapers.length === 0 ? (
             <Card>
@@ -97,33 +163,64 @@ const AllPapersToReview = () => {
           ) : (
             <div className="space-y-4">
               {assignedPapers.map((paper) => {
-                const isReviewed = paper.isReviewedBy?.includes(reviewerId);
+                const isReviewed    = paper.isReviewedBy?.includes(reviewerId);
                 const decisionGiven = paper.finalDecision && paper.finalDecision !== "pending";
-                const disabled = isReviewed || decisionGiven;
+                const isOverdue     = getDueDateStatus(paper.dueDate) === "overdue";
+
+                // Disable card if: already reviewed, decision given, OR past due date
+                const disabled = isReviewed || decisionGiven || isOverdue;
 
                 return (
-                  <Card key={paper.paperId} className={`transition-shadow ${disabled ? "opacity-60 grayscale pointer-events-none" : "hover:shadow-md"}`}>
+                  <Card
+                    key={paper.paperId}
+                    className={`transition-shadow ${
+                      disabled
+                        ? "opacity-60 grayscale pointer-events-none"
+                        : "hover:shadow-md"
+                    } ${isOverdue && !isReviewed && !decisionGiven ? "border-red-200 bg-red-50/30" : ""}`}
+                  >
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5">
                         <div className="flex-1 min-w-0">
+
+                          {/* ── Badges row ── */}
                           <div className="flex flex-wrap items-center gap-2 mb-2">
                             <Badge variant="teal" className="text-[10px]">{paper.conferenceAcronym}</Badge>
-                            {isReviewed && <Badge variant="success" className="text-[10px]">Reviewed</Badge>}
+                            {isReviewed    && <Badge variant="success"   className="text-[10px]">Reviewed</Badge>}
                             {decisionGiven && <Badge variant="secondary" className="text-[10px]">Final Decision Given by Editor</Badge>}
+                            {isOverdue && !isReviewed && !decisionGiven && (
+                              <Badge variant="destructive" className="text-[10px]">Deadline Passed</Badge>
+                            )}
                             {getPlagiarismBadge(paper)}
                           </div>
+
+                          {/* ── Title & abstract ── */}
                           <h2 className="font-bold text-base mb-1 truncate">{paper.title}</h2>
                           {paper.abstract && (
                             <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{paper.abstract}</p>
                           )}
-                          <p className="text-xs text-muted-foreground font-medium">{paper.conferenceName}</p>
+                          <p className="text-xs text-muted-foreground font-medium mb-2">{paper.conferenceName}</p>
+
+                          {/* ── Due date ── */}
+                          <DueDateBadge dueDateUTC={paper.dueDate} />
+
+                          {/* ── Info notices ── */}
                           {decisionGiven && (
                             <div className="flex items-center gap-1.5 mt-3 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
                               <Info className="h-3.5 w-3.5 flex-shrink-0" />
                               Organizer has already given a final decision on this paper
                             </div>
                           )}
+                          {isOverdue && !isReviewed && !decisionGiven && (
+                            <div className="flex items-center gap-1.5 mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                              The review deadline for this paper has passed
+                            </div>
+                          )}
+
                         </div>
+
+                        {/* ── Action buttons ── */}
                         <div className="flex flex-col gap-2 md:w-44 flex-shrink-0">
                           {paper.paperFilePath && (
                             <Button size="sm" variant="outline" asChild>
@@ -138,6 +235,10 @@ const AllPapersToReview = () => {
                             </Button>
                           ) : decisionGiven ? (
                             <Button size="sm" variant="outline" disabled>Decision Given</Button>
+                          ) : isOverdue ? (
+                            <Button size="sm" variant="outline" disabled>
+                              <Clock className="h-3.5 w-3.5 mr-1.5" /> Deadline Passed
+                            </Button>
                           ) : (
                             <Button size="sm" asChild>
                               <Link to={`/userdashboard/review-form?reviewerId=${reviewerId}&paperId=${paper.paperId}&title=${encodeURIComponent(paper.title)}`}>

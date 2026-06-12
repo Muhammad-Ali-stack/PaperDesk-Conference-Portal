@@ -608,3 +608,6 @@ ALTER TABLE authors
 -- authors: link back to the submitting user account
 ALTER TABLE authors
   ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users (id) ON DELETE SET NULL;
+
+  ALTER TABLE assignments
+ADD COLUMN due_date TIMESTAMPTZ;  -- stores UTC, nullable
