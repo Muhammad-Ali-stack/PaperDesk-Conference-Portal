@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "conforum-backend",
+      name: "PaperDesk-Backend",
       script: "server.js",
       instances: "max",
       exec_mode: "cluster",
@@ -16,27 +16,12 @@ module.exports = {
       restart_delay: 3000,
       max_restarts: 10,
     },
-    {
-      name: "conforum-ieee-checker",
-      script: "app.py",
-      cwd: "../conforum-ieee-checker/",
-      interpreter: "python",
-      watch: false,
-      max_memory_restart: "300M",
-      env: {
-        FLASK_ENV: "production",
-      },
-      error_file: "../logs/ieee-error.log",
-      out_file: "../logs/ieee-out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss",
-      restart_delay: 3000,
-      max_restarts: 10,
-    },
+    
   {
-      name: "conforum-frontend",
-      script: "/home/saadia/ICONICS-CMP/Conforum-Frontend/node_modules/serve/build/main.js",
+      name: "PaperDesk-Frontend",
+      script: "/home/saadia/ICONICS-CMP/PaperDesk-Frontend/node_modules/serve/build/main.js",
       args: "-s build -l 4000",
-      cwd: "/home/saadia/ICONICS-CMP/Conforum-Frontend/",
+      cwd: "/home/saadia/ICONICS-CMP/PaperDesk-Frontend/",
       watch: false,
       env: {
         PORT: "4000",
