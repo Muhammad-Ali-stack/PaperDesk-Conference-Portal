@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Users, AlertTriangle, ShieldCheck, CheckCircle, XCircle } from "lucide-react";
+import { Users, ShieldCheck, CheckCircle, XCircle } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,28 +47,22 @@ const getPlagiarismLabel = (score) => {
   return "High Similarity";
 };
 
-// ─── PDF Validation Badge ─────────────────────────────────────────────────────
+// ─── PDF Validation Block (fixed) ────────────────────────────────────────────
 
 const ValidationInfoBlock = ({ validationInfo }) => {
   if (validationInfo === null || validationInfo === undefined) return null;
-
+  const isValid = validationInfo.validated === true || validationInfo.isValid === true;
   return (
     <div
       className={`inline-flex items-start gap-2 px-3 py-2 rounded-lg text-sm border ${
-        validationInfo.isValid
+        isValid
           ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
           : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
       }`}
     >
-      {validationInfo.isValid ? (
-        <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-      ) : (
-        <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-      )}
+      {isValid ? <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" /> : <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />}
       <div className="space-y-0.5">
-        <p className="font-semibold text-xs">
-          {validationInfo.isValid ? "PDF Valid" : "PDF Invalid"}
-        </p>
+        <p className="font-semibold text-xs">{isValid ? "PDF Valid" : "PDF Invalid"}</p>
         <p className="text-xs opacity-80">{validationInfo.message}</p>
         {validationInfo.fileInfo && (
           <p className="text-xs opacity-70">
@@ -137,7 +131,6 @@ const ReviewDetails = () => {
   const [reviewManagementData, setReviewManagementData] = useState([]);
 
   const [selectedPaperId, setSelectedPaperId] = useState(null);
-  const [selectedPaper, setSelectedPaper] = useState(null);
   const [reviewMgmtPaper, setReviewMgmtPaper] = useState(null);
   const [reviews, setReviews] = useState([]);
 
@@ -188,9 +181,7 @@ const ReviewDetails = () => {
 
     const paperIdFromUrl = searchParams.get("paperId");
     if (paperIdFromUrl) {
-      const paperExists = papers.some(
-        (p) => String(p.id || p._id) === paperIdFromUrl
-      );
+      const paperExists = papers.some((p) => String(p.id || p._id) === paperIdFromUrl);
       if (paperExists && selectedPaperId !== paperIdFromUrl) {
         setSelectedPaperId(paperIdFromUrl);
         autoSelectDone.current = true;
@@ -214,60 +205,44 @@ const ReviewDetails = () => {
     }
   }, [papers, reviewManagementData, loadingPapers, searchParams, selectedPaperId, conferenceId, setSearchParams]);
 
-  // 3. Fetch paper details and reviews when selectedPaperId changes
+  // 3. Fetch reviews when selectedPaperId changes (no extra paper fetch)
   useEffect(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     if (!selectedPaperId) {
-      setSelectedPaper(null);
       setReviewMgmtPaper(null);
       setReviews([]);
       return;
     }
 
-    const mgmtEntry = reviewManagementData.find(
-      (p) => String(p.paperId) === String(selectedPaperId)
-    );
+    const mgmtEntry = reviewManagementData.find((p) => String(p.paperId) === String(selectedPaperId));
     setReviewMgmtPaper(mgmtEntry ?? null);
 
-    const fetchPaperAndReviews = async () => {
+    const fetchReviews = async () => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
-
       setLoadingReviews(true);
       setError(null);
 
       try {
-        const paperRes = await axios.get(`/api/author/research-paper/${selectedPaperId}`, {
+        const reviewsRes = await axios.get(`/api/organizer/reviews/${selectedPaperId}`, {
           signal: controller.signal,
         });
-        setSelectedPaper(paperRes.data?.data ?? paperRes.data);
-
-        try {
-          const reviewsRes = await axios.get(`/api/organizer/reviews/${selectedPaperId}`, {
-            signal: controller.signal,
-          });
-          const list = reviewsRes.data?.data ?? reviewsRes.data ?? [];
-          setReviews(Array.isArray(list) ? list : []);
-        } catch {
-          setReviews([]);
-        }
+        const list = reviewsRes.data?.data ?? reviewsRes.data ?? [];
+        setReviews(Array.isArray(list) ? list : []);
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error("Error fetching paper details:", err);
-          setError(err.response?.data?.error || "The Reviewers has not submitted their reviews yet.");
-          setSelectedPaper(null);
+          console.error("Error fetching reviews:", err);
+          setError(err.response?.data?.error || "This Paper was directly reviewed by Editor");
           setReviews([]);
         }
       } finally {
-        if (!controller.signal.aborted) {
-          setLoadingReviews(false);
-        }
+        if (!controller.signal.aborted) setLoadingReviews(false);
       }
     };
 
-    fetchPaperAndReviews();
+    fetchReviews();
   }, [selectedPaperId, reviewManagementData]);
 
   const handlePaperSelect = (paperId) => {
@@ -276,26 +251,12 @@ const ReviewDetails = () => {
   };
 
   // Derived values
-  const organizerPlagiarismScore = selectedPaper?.organizer_plagiarism_score;
-  const hasOrganizerScore =
-    organizerPlagiarismScore !== null && organizerPlagiarismScore !== undefined;
+  const organizerPlagiarismScore = reviewMgmtPaper?.plagiarismScore ?? null;
+  const hasOrganizerScore = organizerPlagiarismScore !== null && organizerPlagiarismScore !== undefined;
   const decision = reviewMgmtPaper?.decision ?? null;
-  const wasReviewedByOrganizer =
-    !!reviewMgmtPaper && !!decision && decision !== "pending" && reviews.length === 0;
-  const organizerComments =
-    reviewMgmtPaper?.organizerCommentsForAuthors ??
-    reviewMgmtPaper?.organizer_comments_for_authors ??
-    reviewMgmtPaper?.commentsForAuthors ??
-    reviewMgmtPaper?.comments_for_authors ??
-    null;
-
-  // Read validation_info — prefer reviewMgmtPaper (already fetched) over selectedPaper
-  const validationInfo =
-    reviewMgmtPaper?.validationInfo ??
-    reviewMgmtPaper?.validation_info ??
-    selectedPaper?.validationInfo ??
-    selectedPaper?.validation_info ??
-    null;
+  const wasReviewedByOrganizer = !!reviewMgmtPaper && !!decision && decision !== "pending" && reviews.length === 0;
+  const organizerComments = reviewMgmtPaper?.organizerCommentsForAuthors ?? null;
+  const validationInfo = reviewMgmtPaper?.validationInfo ?? reviewMgmtPaper?.validation_info ?? null;
 
   const decidedPaperIds = new Set(
     reviewManagementData
@@ -313,9 +274,7 @@ const ReviewDetails = () => {
 
           {/* Paper selector */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Select Paper
-            </label>
+            <label className="block text-sm font-medium text-foreground mb-2">Select Paper</label>
             {loadingPapers ? (
               <Skeleton className="h-10 w-full md:w-96 rounded-md" />
             ) : (
@@ -357,7 +316,7 @@ const ReviewDetails = () => {
               <ReviewCardSkeleton />
               <ReviewCardSkeleton />
             </>
-          ) : selectedPaper ? (
+          ) : reviewMgmtPaper ? (
             <>
               {/* Paper Info Card */}
               <Card className="mb-6">
@@ -365,28 +324,18 @@ const ReviewDetails = () => {
                   <div className="flex justify-between items-start flex-wrap gap-6">
                     <div className="flex-1 min-w-[250px]">
                       <div className="flex items-center gap-3 flex-wrap mb-2">
-                        <h3 className="text-2xl text-foreground font-semibold">
-                          {selectedPaper.title}
-                        </h3>
-                        {getPaperStatusBadge(selectedPaper.status, reviews.length > 0, decision)}
+                        <h3 className="text-2xl text-foreground font-semibold">{reviewMgmtPaper.title}</h3>
+                        {getPaperStatusBadge(reviewMgmtPaper.status, reviews.length > 0, decision)}
                       </div>
                       <p className="text-muted-foreground text-base leading-relaxed">
                         <span className="font-medium text-foreground">Author(s):</span>{" "}
-                        {selectedPaper.paper_authors?.length > 0
-                          ? selectedPaper.paper_authors
-                              .map(
-                                (pa) =>
-                                  `${pa.authors?.first_name || ""} ${pa.authors?.last_name || ""} (${pa.authors?.email || ""})`
-                              )
-                              .join(", ")
+                        {reviewMgmtPaper.authors?.length > 0
+                          ? reviewMgmtPaper.authors.map((author) => `${author.name} (${author.email})`).join(", ")
                           : "N/A"}
                       </p>
 
-                      {/* Plagiarism Score */}
                       <div className="mt-4">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          Plagiarism Score:{" "}
-                        </span>
+                        <span className="text-sm font-medium text-muted-foreground">Plagiarism Score: </span>
                         {hasOrganizerScore ? (
                           <span
                             className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold ${getPlagiarismBadgeClass(
@@ -394,32 +343,22 @@ const ReviewDetails = () => {
                             )}`}
                           >
                             {organizerPlagiarismScore}%
-                            <span className="font-normal text-xs">
-                              — {getPlagiarismLabel(organizerPlagiarismScore)}
-                            </span>
+                            <span className="font-normal text-xs">— {getPlagiarismLabel(organizerPlagiarismScore)}</span>
                           </span>
                         ) : (
-                          <span className="text-sm text-muted-foreground italic">
-                            Not recorded by Editor
-                          </span>
+                          <span className="text-sm text-muted-foreground italic">Not recorded by Editor</span>
                         )}
                       </div>
 
-                      {/* PDF Validation — replaces the IEEE Compliance DonutChart */}
                       <div className="mt-4">
-                        <span className="text-sm font-medium text-muted-foreground block mb-2">
-                          PDF Validation:
-                        </span>
+                        <span className="text-sm font-medium text-muted-foreground block mb-2">PDF Validation:</span>
                         <ValidationInfoBlock validationInfo={validationInfo} />
                         {validationInfo === null && (
-                          <span className="text-sm text-muted-foreground italic">
-                            No validation data available.
-                          </span>
+                          <span className="text-sm text-muted-foreground italic">No validation data available.</span>
                         )}
                       </div>
                     </div>
 
-                    {/* Only the plagiarism DonutChart remains */}
                     {hasOrganizerScore && (
                       <div className="flex gap-10 items-center flex-wrap">
                         <DonutChart
@@ -447,9 +386,7 @@ const ReviewDetails = () => {
                   <Card className="border-teal-200 dark:border-teal-800">
                     <div className="flex items-center gap-2 px-5 py-3 bg-teal-100/60 dark:bg-teal-900/40 border-b border-teal-200 dark:border-teal-800 rounded-t-lg">
                       <ShieldCheck className="h-5 w-5 text-teal-600 dark:text-teal-400 flex-shrink-0" />
-                      <span className="text-base font-semibold text-teal-700 dark:text-teal-300">
-                        Reviewed by Editor
-                      </span>
+                      <span className="text-base font-semibold text-teal-700 dark:text-teal-300">Reviewed by Editor</span>
                     </div>
                     <CardContent className="p-5 space-y-4">
                       <div className="flex items-center gap-3">
@@ -457,31 +394,21 @@ const ReviewDetails = () => {
                         {getDecisionBadge(decision)}
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                          Comments for Authors
-                        </p>
+                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Comments for Authors</p>
                         {organizerComments ? (
                           <p className="text-sm text-foreground bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 leading-relaxed">
                             {organizerComments}
                           </p>
                         ) : (
-                          <p className="text-sm text-muted-foreground italic">
-                            No comments were left for the authors.
-                          </p>
+                          <p className="text-sm text-muted-foreground italic">No comments were left for the authors.</p>
                         )}
                       </div>
                     </CardContent>
                   </Card>
                 ) : reviews.length === 0 ? (
-                  <Card className="bg-warning/10 border-warning/20">
-                    <CardContent className="p-6 text-center">
-                      <AlertTriangle className="h-10 w-10 text-warning mx-auto mb-2" />
-                      <p className="text-warning font-medium">
-                        No reviews have been submitted yet.
-                      </p>
-                      <p className="text-sm text-warning/80 mt-1">
-                        Once reviewers submit their evaluations, they will appear here.
-                      </p>
+                  <Card>
+                    <CardContent className="p-12 text-center text-muted-foreground">
+                      No reviews have been submitted for this paper yet.
                     </CardContent>
                   </Card>
                 ) : (
@@ -496,12 +423,8 @@ const ReviewDetails = () => {
                               </div>
                             </div>
                             <div className="flex-1">
-                              <h3 className="text-lg font-semibold text-foreground">
-                                Reviewer: {review.users?.name || "N/A"}
-                              </h3>
-                              <p className="text-sm text-muted-foreground mb-3">
-                                Email: {review.users?.email || "N/A"}
-                              </p>
+                              <h3 className="text-lg font-semibold text-foreground">Reviewer: {review.users?.name || "N/A"}</h3>
+                              <p className="text-sm text-muted-foreground mb-3">Email: {review.users?.email || "N/A"}</p>
                               <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                                 {[
                                   ["Originality", review.originality],
@@ -517,37 +440,23 @@ const ReviewDetails = () => {
                                 ))}
                               </div>
                               <div className="mt-3 flex items-center gap-2">
-                                <span className="font-medium text-muted-foreground">
-                                  Overall Recommendation:
-                                </span>
+                                <span className="font-medium text-muted-foreground">Overall Recommendation:</span>
                                 <Badge variant="outline">{review.overall_recommendation}</Badge>
                               </div>
                               <div className="mt-2">
-                                <span className="font-medium text-muted-foreground">
-                                  Technical Confidence:
-                                </span>
-                                <span className="ml-2 text-foreground">
-                                  {review.technical_confidence || "N/A"}/10
-                                </span>
+                                <span className="font-medium text-muted-foreground">Technical Confidence:</span>
+                                <span className="ml-2 text-foreground">{review.technical_confidence || "N/A"}/10</span>
                               </div>
                               {review.comments_for_authors && (
                                 <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-                                  <p className="text-sm font-medium text-foreground mb-1">
-                                    Comments for Authors:
-                                  </p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {review.comments_for_authors}
-                                  </p>
+                                  <p className="text-sm font-medium text-foreground mb-1">Comments for Authors:</p>
+                                  <p className="text-sm text-muted-foreground">{review.comments_for_authors}</p>
                                 </div>
                               )}
                               {review.comments_for_organizers && (
                                 <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 rounded-lg">
-                                  <p className="text-sm font-medium text-foreground mb-1">
-                                    Comments for Editor:
-                                  </p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {review.comments_for_organizers}
-                                  </p>
+                                  <p className="text-sm font-medium text-foreground mb-1">Comments for Editor:</p>
+                                  <p className="text-sm text-muted-foreground">{review.comments_for_organizers}</p>
                                 </div>
                               )}
                             </div>

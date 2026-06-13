@@ -10,12 +10,23 @@ import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import {
-  ChevronDown, ChevronUp, FileText, RefreshCw, ShieldCheck,
-  Clock, AlertTriangle, Pencil, X, Check, CheckCircle, XCircle,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  RefreshCw,
+  ShieldCheck,
+  Clock,
+  AlertTriangle,
+  Pencil,
+  X,
+  Check,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 
-// ─── Due Date Helpers ─────────────────────────────────────────────────────────
-
+// -----------------------------------------------------------------------------
+// Due Date Helpers (unchanged)
+// -----------------------------------------------------------------------------
 function formatDueDate(dueDateUTC) {
   if (!dueDateUTC) return null;
   return new Date(dueDateUTC).toLocaleString(undefined, {
@@ -29,7 +40,7 @@ function getDueDateStatus(dueDateUTC) {
   const now = new Date();
   const due = new Date(dueDateUTC);
   const hoursLeft = (due - now) / (1000 * 60 * 60);
-  if (hoursLeft < 0)   return "overdue";
+  if (hoursLeft < 0) return "overdue";
   if (hoursLeft <= 24) return "urgent";
   if (hoursLeft <= 72) return "soon";
   return "ok";
@@ -37,48 +48,57 @@ function getDueDateStatus(dueDateUTC) {
 
 function DueDatePill({ dueDateUTC }) {
   const formatted = formatDueDate(dueDateUTC);
-  const status    = getDueDateStatus(dueDateUTC);
+  const status = getDueDateStatus(dueDateUTC);
   if (!formatted) return null;
 
   const styles = {
     overdue: "text-red-600 bg-red-50 border-red-200",
-    urgent:  "text-orange-600 bg-orange-50 border-orange-200",
-    soon:    "text-yellow-700 bg-yellow-50 border-yellow-200",
-    ok:      "text-green-700 bg-green-50 border-green-200",
+    urgent: "text-orange-600 bg-orange-50 border-orange-200",
+    soon: "text-yellow-700 bg-yellow-50 border-yellow-200",
+    ok: "text-green-700 bg-green-50 border-green-200",
   };
-
   const Icon = status === "overdue" || status === "urgent" ? AlertTriangle : Clock;
   const label = status === "overdue" ? "Overdue" : "Due";
-
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${styles[status]}`}>
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${styles[status]}`}
+    >
       <Icon className="w-2.5 h-2.5" />
       {label}: {formatted}
     </span>
   );
 }
 
-// ─── PDF Validation Badge ─────────────────────────────────────────────────────
-
+// -----------------------------------------------------------------------------
+// PDF Validation Badge – using the same logic as in AllPapersOfAuthor
+// -----------------------------------------------------------------------------
 function ValidationBadge({ validationInfo }) {
+  // No validation data available
   if (validationInfo === null || validationInfo === undefined) {
-    return <span className="text-muted-foreground text-xs">—</span>;
+    return <span className="text-muted-foreground text-xs italic">No validation data</span>;
   }
-  if (validationInfo.isValid) {
+
+  // Backend stores the flag as 'validated' (same as in AllPapersOfAuthor)
+  const isValid = validationInfo.validated === true;
+
+  if (isValid) {
     return (
       <span
         className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold"
-        title={validationInfo.message ?? ""}
+        title={validationInfo.message ?? "Valid PDF"}
       >
         <CheckCircle className="h-3.5 w-3.5" />
         Valid
       </span>
     );
   }
+
+  // If invalid, also show a tooltip with the exact object for debugging
+  const debugInfo = JSON.stringify(validationInfo, null, 2);
   return (
     <span
-      className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-semibold"
-      title={validationInfo.message ?? ""}
+      className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-semibold cursor-help"
+      title={`Stored validation info:\n${debugInfo}`}
     >
       <XCircle className="h-3.5 w-3.5" />
       Invalid
@@ -86,8 +106,9 @@ function ValidationBadge({ validationInfo }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
+// -----------------------------------------------------------------------------
+// Main Component
+// -----------------------------------------------------------------------------
 const ReviewManagement = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
   const navigate = useNavigate();
@@ -97,7 +118,6 @@ const ReviewManagement = () => {
   const [expandedReviewer, setExpandedReviewer] = useState(null);
   const [submissionStatuses, setSubmissionStatuses] = useState({});
   const [activeTab, setActiveTab] = useState("reviewers");
-
   const [editingDueDateFor, setEditingDueDateFor] = useState(null);
   const [dueDateInputs, setDueDateInputs] = useState({});
   const [savingDueDate, setSavingDueDate] = useState(false);
@@ -113,8 +133,7 @@ const ReviewManagement = () => {
       const response = await axios.get(`/api/organizer/review-management/${conferenceId}`);
       const data = response.data?.data ?? response.data;
       let papers = Array.isArray(data) ? data : [];
-
-      papers = [...papers].sort((a, b) => {
+      papers.sort((a, b) => {
         const getDate = (p) =>
           p.assignedAt || p.latest_assigned_at || p.assigned_at || p.created_at || p.submittedDate || null;
         const dateA = getDate(a);
@@ -124,7 +143,6 @@ const ReviewManagement = () => {
         if (!dateB) return -1;
         return new Date(dateB) - new Date(dateA);
       });
-
       setTableData(papers);
       papers.forEach((paper) => fetchSubmissionStatus(paper.paperId));
     } catch (error) {
@@ -150,8 +168,14 @@ const ReviewManagement = () => {
 
   const handleViewFullReviews = useCallback(
     (paperId, paperTitle, event) => {
-      if (event) { event.preventDefault(); event.stopPropagation(); }
-      if (!paperId) { toast.error("Cannot view reviews: Paper ID is missing"); return; }
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (!paperId) {
+        toast.error("Cannot view reviews: Paper ID is missing");
+        return;
+      }
       navigate(
         `/userdashboard/reviews?paperId=${encodeURIComponent(paperId)}&conferenceId=${encodeURIComponent(conferenceId)}`
       );
@@ -188,9 +212,7 @@ const ReviewManagement = () => {
     setDueDateInputs((prev) => ({ ...prev, [paperId]: localValue }));
     setEditingDueDateFor(paperId);
   };
-
   const handleCancelEditDueDate = () => setEditingDueDateFor(null);
-
   const handleSaveDueDate = async (paperId) => {
     const dueDate = dueDateInputs[paperId];
     setSavingDueDate(true);
@@ -201,24 +223,6 @@ const ReviewManagement = () => {
       });
       toast.success("Due date updated successfully.");
       setEditingDueDateFor(null);
-      setTableData((prev) =>
-        prev.map((p) =>
-          p.paperId === paperId
-            ? {
-                ...p,
-                dueDate: dueDate
-                  ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString()
-                  : null,
-                reviewers: p.reviewers?.map((r) => ({
-                  ...r,
-                  dueDate: dueDate
-                    ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString()
-                    : null,
-                })),
-              }
-            : p
-        )
-      );
       await fetchData();
     } catch (err) {
       console.error(err);
@@ -227,14 +231,9 @@ const ReviewManagement = () => {
       setSavingDueDate(false);
     }
   };
-
   const toggleReviewer = (key) => setExpandedReviewer((prev) => (prev === key ? null : key));
 
-  const getStatusBadge = (status) => {
-    if (status === "reviewed") return <Badge variant="success">Reviewed</Badge>;
-    return <Badge variant="warning">Pending</Badge>;
-  };
-
+  const getStatusBadge = (status) => (status === "reviewed" ? <Badge variant="success">Reviewed</Badge> : <Badge variant="warning">Pending</Badge>);
   const getRecommendationBadge = (rec) => {
     if (!rec || rec === "-") return <span className="text-muted-foreground text-xs">—</span>;
     if (rec === "Accept") return <Badge variant="success">{rec}</Badge>;
@@ -242,7 +241,6 @@ const ReviewManagement = () => {
     if (rec === "Reject") return <Badge variant="destructive">{rec}</Badge>;
     return <Badge variant="outline">{rec}</Badge>;
   };
-
   const getDecisionBadge = (decision) => {
     if (decision === "Accepted") return <Badge variant="success">Accepted</Badge>;
     if (decision === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
@@ -250,7 +248,6 @@ const ReviewManagement = () => {
     if (decision === "Assigned") return <Badge variant="purple">Assigned</Badge>;
     return null;
   };
-
   const getDecisionTextColor = (decision) => {
     if (decision === "Accepted") return "text-green-300";
     if (decision === "Rejected") return "text-red-300";
@@ -258,7 +255,6 @@ const ReviewManagement = () => {
     if (decision === "Assigned") return "text-purple-300";
     return "text-white/80";
   };
-
   const getPlagiarismColor = (score) => {
     if (score === null || score === undefined) return "text-muted-foreground";
     if (score <= 15) return "text-green-600 dark:text-green-400";
@@ -291,68 +287,43 @@ const ReviewManagement = () => {
     </Card>
   );
 
-  // ── Tab filters ──
-  const reviewerReviewedPapers = tableData.filter(
-    (paper) => paper.reviewers && paper.reviewers.some((r) => r.status === "reviewed")
-  );
+  const reviewerReviewedPapers = tableData.filter((p) => p.reviewers?.some((r) => r.status === "reviewed"));
   const organizerReviewedPapers = tableData.filter(
-    (paper) =>
-      paper.decision &&
-      paper.decision !== "pending" &&
-      (!paper.reviewers || paper.reviewers.length === 0)
+    (p) => p.decision && p.decision !== "pending" && (!p.reviewers || p.reviewers.length === 0)
   );
-  const unreviewedPapers = tableData.filter((paper) => {
-    const noDecision = !paper.decision || paper.decision === "pending";
-    const noReviewerReviewed =
-      !paper.reviewers ||
-      paper.reviewers.length === 0 ||
-      !paper.reviewers.some((r) => r.status === "reviewed");
-    const notOrganizerReviewed = !(
-      paper.decision &&
-      paper.decision !== "pending" &&
-      (!paper.reviewers || paper.reviewers.length === 0)
-    );
+  const unreviewedPapers = tableData.filter((p) => {
+    const noDecision = !p.decision || p.decision === "pending";
+    const noReviewerReviewed = !p.reviewers || p.reviewers.length === 0 || !p.reviewers.some((r) => r.status === "reviewed");
+    const notOrganizerReviewed = !(p.decision && p.decision !== "pending" && (!p.reviewers || p.reviewers.length === 0));
     return noDecision && noReviewerReviewed && notOrganizerReviewed;
   });
 
-  // ── Paper card renderer ──
   const renderPapersList = (papersList) => {
     if (papersList.length === 0) {
       return (
         <Card>
-          <CardContent className="p-12 text-center text-muted-foreground">
-            No papers in this category.
-          </CardContent>
+          <CardContent className="p-12 text-center text-muted-foreground">No papers in this category.</CardContent>
         </Card>
       );
     }
-
     return papersList.map((paper, index) => {
-      const currentPaperId    = paper.paperId;
+      const currentPaperId = paper.paperId;
       const currentPaperTitle = paper.title;
-      const status            = submissionStatuses[currentPaperId];
-
+      const status = submissionStatuses[currentPaperId];
       const wasReviewedByOrganizer =
-        paper.decision &&
-        paper.decision !== "pending" &&
-        (!paper.reviewers || paper.reviewers.length === 0);
-
+        paper.decision && paper.decision !== "pending" && (!paper.reviewers || paper.reviewers.length === 0);
       const organizerComments =
         paper.organizerCommentsForAuthors ??
         paper.organizer_comments_for_authors ??
         paper.commentsForAuthors ??
         paper.comments_for_authors ??
         null;
-
       const plagiarismScore = paper.plagiarismScore ?? null;
       const paperDueDate = paper.dueDate ?? paper.reviewers?.[0]?.dueDate ?? null;
-
-      // Read validation_info — may be null for papers submitted before the validator was introduced
       const validationInfo = paper.validationInfo ?? paper.validation_info ?? null;
 
       return (
         <Card key={currentPaperId} className="overflow-hidden">
-          {/* Card header */}
           <div className="bg-teal-700 dark:bg-teal-900 text-white px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm opacity-70">#{index + 1}</span>
@@ -369,21 +340,23 @@ const ReviewManagement = () => {
                 </span>
               )}
               {paperDueDate && (
-                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                  getDueDateStatus(paperDueDate) === "overdue"
-                    ? "bg-red-500/80 text-white"
-                    : getDueDateStatus(paperDueDate) === "urgent"
-                    ? "bg-orange-400/80 text-white"
-                    : getDueDateStatus(paperDueDate) === "soon"
-                    ? "bg-yellow-400/80 text-gray-900"
-                    : "bg-white/20 text-white"
-                }`}>
-                  {getDueDateStatus(paperDueDate) === "overdue" || getDueDateStatus(paperDueDate) === "urgent"
-                    ? <AlertTriangle className="h-3 w-3" />
-                    : <Clock className="h-3 w-3" />
-                  }
-                  {getDueDateStatus(paperDueDate) === "overdue" ? "Overdue" : "Due"}:{" "}
-                  {formatDueDate(paperDueDate)}
+                <span
+                  className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                    getDueDateStatus(paperDueDate) === "overdue"
+                      ? "bg-red-500/80 text-white"
+                      : getDueDateStatus(paperDueDate) === "urgent"
+                      ? "bg-orange-400/80 text-white"
+                      : getDueDateStatus(paperDueDate) === "soon"
+                      ? "bg-yellow-400/80 text-gray-900"
+                      : "bg-white/20 text-white"
+                  }`}
+                >
+                  {getDueDateStatus(paperDueDate) === "overdue" || getDueDateStatus(paperDueDate) === "urgent" ? (
+                    <AlertTriangle className="h-3 w-3" />
+                  ) : (
+                    <Clock className="h-3 w-3" />
+                  )}
+                  {getDueDateStatus(paperDueDate) === "overdue" ? "Overdue" : "Due"}: {formatDueDate(paperDueDate)}
                 </span>
               )}
             </div>
@@ -402,14 +375,11 @@ const ReviewManagement = () => {
               </span>
             </div>
           </div>
-
           <CardContent className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Column 1 — Authors + Scores */}
+            {/* Column 1 – Authors and Scores */}
             <div className="space-y-4">
               <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                  Authors
-                </p>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Authors</p>
                 {paper.authors?.map((author, i) => (
                   <div key={i} className="mb-1">
                     <span className="text-sm font-medium text-foreground">{author.name}</span>
@@ -418,11 +388,8 @@ const ReviewManagement = () => {
                   </div>
                 ))}
               </div>
-
               <div className="bg-muted/30 rounded-lg p-3 space-y-2 border border-border">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Scores
-                </p>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Scores</p>
                 {!wasReviewedByOrganizer && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Avg Technical Score</span>
@@ -431,7 +398,6 @@ const ReviewManagement = () => {
                     </span>
                   </div>
                 )}
-                {/* PDF Validation — replaces the old IEEE Compliance row */}
                 <div className="flex justify-between text-sm items-center">
                   <span className="text-muted-foreground">PDF Validation</span>
                   <ValidationBadge validationInfo={validationInfo} />
@@ -443,7 +409,6 @@ const ReviewManagement = () => {
                   </span>
                 </div>
               </div>
-
               {!wasReviewedByOrganizer && (!paper.decision || paper.decision === "pending") && (
                 <div className="bg-muted/30 rounded-lg p-3 border border-border">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
@@ -468,19 +433,15 @@ const ReviewManagement = () => {
               )}
             </div>
 
-            {/* Column 2 — Organizer panel OR reviewer list */}
+            {/* Column 2 – Organizer panel OR reviewer list */}
             <div className="lg:col-span-1">
               {wasReviewedByOrganizer ? (
                 <div className="space-y-3">
-                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
-                    Review
-                  </p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Review</p>
                   <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/20 overflow-hidden">
                     <div className="flex items-center gap-2 px-3 py-2 bg-teal-100/60 dark:bg-teal-900/40 border-b border-teal-200 dark:border-teal-800">
                       <ShieldCheck className="h-4 w-4 text-teal-600 dark:text-teal-400 flex-shrink-0" />
-                      <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">
-                        Directly Reviewed by Editor
-                      </span>
+                      <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">Directly Reviewed by Editor</span>
                     </div>
                     <div className="px-3 py-3 space-y-3">
                       <div className="flex items-center gap-2">
@@ -489,17 +450,13 @@ const ReviewManagement = () => {
                       </div>
                       {organizerComments ? (
                         <div>
-                          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                            Comments for Authors
-                          </p>
+                          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Comments for Authors</p>
                           <p className="text-sm text-foreground bg-blue-50 dark:bg-blue-950/30 rounded p-2 leading-relaxed">
                             {organizerComments}
                           </p>
                         </div>
                       ) : (
-                        <p className="text-xs text-muted-foreground italic">
-                          No comments were left for the authors.
-                        </p>
+                        <p className="text-xs text-muted-foreground italic">No comments were left for the authors.</p>
                       )}
                     </div>
                   </div>
@@ -508,8 +465,7 @@ const ReviewManagement = () => {
                     onClick={(e) => handleViewFullReviews(currentPaperId, currentPaperTitle, e)}
                     className="inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:underline text-sm mt-1"
                   >
-                    <FileText className="h-3 w-3" />
-                    View Full Reviews
+                    <FileText className="h-3 w-3" /> View Full Reviews
                   </button>
                 </div>
               ) : (
@@ -522,29 +478,24 @@ const ReviewManagement = () => {
                   ) : (
                     <div className="space-y-3">
                       {paper.reviewers?.map((reviewer, i) => {
-                        const key        = `${currentPaperId}-${i}`;
+                        const key = `${currentPaperId}-${i}`;
                         const isExpanded = expandedReviewer === key;
                         const hasComments = reviewer.commentsForAuthors || reviewer.commentsForOrganizers;
                         const reviewerDueDate = reviewer.dueDate ?? paperDueDate;
-                        const dueDateStatus   = getDueDateStatus(reviewerDueDate);
-
+                        const dueDateStatus = getDueDateStatus(reviewerDueDate);
                         return (
                           <Card
                             key={i}
-                            className={`overflow-hidden border-border ${
-                              dueDateStatus === "overdue" ? "border-red-200" : ""
-                            }`}
+                            className={`overflow-hidden border-border ${dueDateStatus === "overdue" ? "border-red-200" : ""}`}
                           >
-                            <div className={`flex items-center justify-between px-3 py-2 ${
-                              dueDateStatus === "overdue"
-                                ? "bg-red-50/60 dark:bg-red-950/20"
-                                : "bg-muted/20"
-                            }`}>
+                            <div
+                              className={`flex items-center justify-between px-3 py-2 ${
+                                dueDateStatus === "overdue" ? "bg-red-50/60 dark:bg-red-950/20" : "bg-muted/20"
+                              }`}
+                            >
                               <div className="flex flex-col gap-1 flex-wrap">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium text-foreground">
-                                    {reviewer.name}
-                                  </span>
+                                  <span className="text-sm font-medium text-foreground">{reviewer.name}</span>
                                   {getStatusBadge(reviewer.status)}
                                   {getRecommendationBadge(reviewer.recommendation)}
                                 </div>
@@ -571,9 +522,7 @@ const ReviewManagement = () => {
                                 </div>
                                 {reviewer.commentsForAuthors && (
                                   <div>
-                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                                      Comments for Authors
-                                    </p>
+                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Comments for Authors</p>
                                     <p className="text-sm text-foreground bg-blue-50 dark:bg-blue-950/30 rounded p-2 leading-relaxed">
                                       {reviewer.commentsForAuthors}
                                     </p>
@@ -581,9 +530,7 @@ const ReviewManagement = () => {
                                 )}
                                 {reviewer.commentsForOrganizers && (
                                   <div>
-                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                                      Comments for Editors
-                                    </p>
+                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Comments for Editors</p>
                                     <p className="text-sm text-foreground bg-yellow-50 dark:bg-yellow-950/30 rounded p-2 leading-relaxed">
                                       {reviewer.commentsForOrganizers}
                                     </p>
@@ -601,26 +548,21 @@ const ReviewManagement = () => {
                     onClick={(e) => handleViewFullReviews(currentPaperId, currentPaperTitle, e)}
                     className="inline-flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:underline text-sm mt-3"
                   >
-                    <FileText className="h-3 w-3" />
-                    View Full Reviews
+                    <FileText className="h-3 w-3" /> View Full Reviews
                   </button>
                 </>
               )}
             </div>
 
-            {/* Column 3 — Due Date Editor + Final Decision */}
+            {/* Column 3 – Due Date Editor + Final Decision */}
             <div>
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                Review Due Date
-              </p>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Review Due Date</p>
               {editingDueDateFor === currentPaperId ? (
                 <div className="mb-4 space-y-2">
                   <input
                     type="datetime-local"
                     value={dueDateInputs[currentPaperId] || ""}
-                    onChange={(e) =>
-                      setDueDateInputs((prev) => ({ ...prev, [currentPaperId]: e.target.value }))
-                    }
+                    onChange={(e) => setDueDateInputs((prev) => ({ ...prev, [currentPaperId]: e.target.value }))}
                     className="w-full text-xs rounded-md border border-border bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <p className="text-[10px] text-muted-foreground">Timezone: {timezone}</p>
@@ -658,11 +600,7 @@ const ReviewManagement = () => {
               ) : (
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <div>
-                    {paperDueDate ? (
-                      <DueDatePill dueDateUTC={paperDueDate} />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No deadline set</span>
-                    )}
+                    {paperDueDate ? <DueDatePill dueDateUTC={paperDueDate} /> : <span className="text-xs text-muted-foreground">No deadline set</span>}
                   </div>
                   <Button
                     size="sm"
@@ -675,39 +613,24 @@ const ReviewManagement = () => {
                   </Button>
                 </div>
               )}
-
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
-                Final Decision
-              </p>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Final Decision</p>
               {!paper.decision || paper.decision === "pending" ? (
                 <div className="space-y-2">
-                  <Button
-                    onClick={() => handleDecision(currentPaperId, "Accepted")}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white"
-                  >
+                  <Button onClick={() => handleDecision(currentPaperId, "Accepted")} className="w-full bg-green-600 hover:bg-green-700 text-white">
                     Accept
                   </Button>
-                  <Button
-                    onClick={() => handleDecision(currentPaperId, "Rejected")}
-                    variant="destructive"
-                    className="w-full"
-                  >
+                  <Button onClick={() => handleDecision(currentPaperId, "Rejected")} variant="destructive" className="w-full">
                     Reject
                   </Button>
                   {paper.status !== "resubmitted" && (
-                    <Button
-                      onClick={() => handleDecision(currentPaperId, "Modification Required")}
-                      className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-                    >
+                    <Button onClick={() => handleDecision(currentPaperId, "Modification Required")} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white">
                       Modifications Required
                     </Button>
                   )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-20 bg-muted/30 rounded-lg border border-border">
-                  {getDecisionBadge(paper.decision) || (
-                    <span className="text-sm text-muted-foreground">{paper.decision}</span>
-                  )}
+                  {getDecisionBadge(paper.decision) || <span className="text-sm text-muted-foreground">{paper.decision}</span>}
                 </div>
               )}
             </div>
@@ -737,7 +660,6 @@ const ReviewManagement = () => {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardContent className="p-0">
               <Tabs defaultValue="reviewers" value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -772,24 +694,23 @@ const ReviewManagement = () => {
                     </TabsTrigger>
                   </TabsList>
                 </div>
-
                 <TabsContent value="reviewers" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
+                    <div className="p-6 space-y-6">{Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(reviewerReviewedPapers)}</div>
                   )}
                 </TabsContent>
                 <TabsContent value="organizer" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
+                    <div className="p-6 space-y-6">{Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(organizerReviewedPapers)}</div>
                   )}
                 </TabsContent>
                 <TabsContent value="unreviewed" className="mt-0">
                   {loading ? (
-                    <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
+                    <div className="p-6 space-y-6">{Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}</div>
                   ) : (
                     <div className="space-y-6 p-6">{renderPapersList(unreviewedPapers)}</div>
                   )}

@@ -7,6 +7,7 @@ import {
   respondToInvitationController,
   getAssignedPapersForReviewerController,
   submitReviewFormController,
+  getPlagiarismScoreForPaperController,   // <-- ADD THIS IMPORT
 } from "../controller/reviewerController.js";
 import { requireLogin, checkIfReviewed } from "../middleware/authMiddleware.js";
 
@@ -20,15 +21,22 @@ router.post("/respond-invitation", respondToInvitationController);
 
 // ─── Protected routes ─────────────────────────────────────────────────────────
 // IMPORTANT: static segments must come before dynamic /:param segments.
-// GET /assigned-papers/reviewer/:reviewerId must be registered before
-// GET /:conferenceId/reviewers — otherwise Express matches "assigned-papers"
-// as the :conferenceId value and this handler is never reached.
+
+// Route for fetching plagiarism score (static path)
+router.get(
+  "/paper/:paperId/plagiarism-score",
+  requireLogin,
+  getPlagiarismScoreForPaperController
+);
+
+// Static: /assigned-papers/reviewer/:reviewerId
 router.get(
   "/assigned-papers/reviewer/:reviewerId",
   requireLogin,
   getAssignedPapersForReviewerController
 );
 
+// Dynamic: /:conferenceId/reviewers — must come AFTER static routes
 router.get(
   "/:conferenceId/reviewers",
   requireLogin,

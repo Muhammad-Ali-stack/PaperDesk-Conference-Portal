@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import Layout from "../../components/Layout";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -6,6 +6,12 @@ import toast from "react-hot-toast";
 import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../lib/utils";
+
+// Helper to get auth headers (same as in other components)
+const getAuthHeaders = () => {
+  const token = localStorage.getItem("token");
+  return { headers: { Authorization: `Bearer ${token}` } };
+};
 
 const ReviewForm = () => {
   const [formData, setFormData] = useState({
@@ -19,41 +25,47 @@ const ReviewForm = () => {
     commentsForOrganizers: "",
   });
 
-  const [paper, setPaper] = useState("");
-  const [reviewer, setReviewer] = useState("");
+  const [paperId, setPaperId] = useState("");
+  const [reviewerId, setReviewerId] = useState("");
   const [title, setTitle] = useState("");
   const [plagiarismScore, setPlagiarismScore] = useState(null);
-  const [plagiarismLoading, setPlagiarismLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fetchingScore, setFetchingScore] = useState(true);
 
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Read paperId, reviewerId, title from URL query params
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
-    const reviewerId = queryParams.get("reviewerId") || "";
-    const paperId = queryParams.get("paperId") || "";
-    const paperTitle = queryParams.get("title") || "";
-    setPaper(paperId);
-    setReviewer(reviewerId);
-    setTitle(paperTitle);
-    if (paperId) fetchPlagiarismScore(paperId);
+    setPaperId(queryParams.get("paperId") || "");
+    setReviewerId(queryParams.get("reviewerId") || "");
+    setTitle(queryParams.get("title") || "");
   }, [location.search]);
 
-  const fetchPlagiarismScore = async (paperId) => {
-    setPlagiarismLoading(true);
+  // Fetch plagiarism score from the reviewer‑only endpoint
+  const fetchPlagiarismScore = useCallback(async () => {
+    if (!paperId) return;
+    setFetchingScore(true);
     try {
-      const response = await axios.get(`/api/author/research-paper/${paperId}`);
-      const paperData = response.data?.data || response.data;
-      const score = paperData?.organizer_plagiarism_score;
-      setPlagiarismScore(score !== undefined ? score : null);
+      const response = await axios.get(
+        `/api/reviewer/paper/${paperId}/plagiarism-score`,
+        getAuthHeaders()
+      );
+      const score = response.data?.data?.plagiarismScore ?? null;
+      setPlagiarismScore(score);
     } catch (error) {
       console.error("Failed to fetch plagiarism score:", error);
+      // 403/404 are expected if the score does not exist or the reviewer is not assigned
       setPlagiarismScore(null);
     } finally {
-      setPlagiarismLoading(false);
+      setFetchingScore(false);
     }
-  };
+  }, [paperId]);
+
+  useEffect(() => {
+    fetchPlagiarismScore();
+  }, [fetchPlagiarismScore]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -61,9 +73,12 @@ const ReviewForm = () => {
   };
 
   const getPlagiarismVariant = (score) => {
-    if (score === null || score === undefined) return { color: "text-muted-foreground", bg: "bg-muted border-border", banner: "bg-muted border-border text-muted-foreground" };
-    if (score <= 15) return { color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800", banner: "bg-green-50 dark:bg-green-950 border-green-100 dark:border-green-900 text-green-700 dark:text-green-300" };
-    if (score <= 25) return { color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800", banner: "bg-yellow-50 dark:bg-yellow-950 border-yellow-100 dark:border-yellow-900 text-yellow-700 dark:text-yellow-300" };
+    if (score === null || score === undefined)
+      return { color: "text-muted-foreground", bg: "bg-muted border-border", banner: "bg-muted border-border text-muted-foreground" };
+    if (score <= 15)
+      return { color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800", banner: "bg-green-50 dark:bg-green-950 border-green-100 dark:border-green-900 text-green-700 dark:text-green-300" };
+    if (score <= 25)
+      return { color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800", banner: "bg-yellow-50 dark:bg-yellow-950 border-yellow-100 dark:border-yellow-900 text-yellow-700 dark:text-yellow-300" };
     return { color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800", banner: "bg-red-50 dark:bg-red-950 border-red-100 dark:border-red-900 text-red-700 dark:text-red-300" };
   };
 
@@ -97,8 +112,8 @@ const ReviewForm = () => {
     try {
       const response = await axios.post("/api/reviewer/submit-reviewform", {
         ...formData,
-        paperId: paper,
-        reviewerId: reviewer,
+        paperId,
+        reviewerId,
       });
       toast.success(response.data.message || "Review submitted successfully!");
       setFormData({
@@ -153,6 +168,7 @@ const ReviewForm = () => {
               <p className="mt-2 text-muted-foreground font-medium italic">Title: {title}</p>
             </div>
 
+            {/* Plagiarism Score Display – fetched from database */}
             <div className={cn("rounded-2xl p-6 border", pVariant.bg)}>
               <div className="flex items-center justify-between">
                 <div>
@@ -160,11 +176,11 @@ const ReviewForm = () => {
                     Plagiarism Score from Organizer
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Entered by the conference organizer before reviewer assignment
+                    Entered by the conference Editor before Reviewer assignment
                   </p>
                 </div>
                 <div className="text-right">
-                  {plagiarismLoading ? (
+                  {fetchingScore ? (
                     <div className="text-sm text-muted-foreground animate-pulse">Loading...</div>
                   ) : (
                     <>
@@ -178,7 +194,7 @@ const ReviewForm = () => {
                   )}
                 </div>
               </div>
-              {!plagiarismLoading && hasScore && (
+              {!fetchingScore && hasScore && (
                 <div className={cn("mt-3 p-3 rounded-xl border text-xs", pVariant.banner)}>
                   {plagiarismScore > 25
                     ? "⚠️ High similarity detected. Please consider this in your evaluation."
@@ -187,13 +203,14 @@ const ReviewForm = () => {
                     : "✓ Low similarity score. Originality appears satisfactory."}
                 </div>
               )}
-              {!plagiarismLoading && !hasScore && (
+              {!fetchingScore && !hasScore && (
                 <div className="mt-3 p-3 bg-muted rounded-xl border border-border">
                   <p className="text-xs text-muted-foreground">No plagiarism score has been recorded yet.</p>
                 </div>
               )}
             </div>
 
+            {/* Scoring Criteria */}
             <div className="space-y-8">
               {[
                 { name: "originality", label: "Originality", desc: "Is the work novel and unique?" },
@@ -214,6 +231,7 @@ const ReviewForm = () => {
               ))}
             </div>
 
+            {/* Overall Recommendation */}
             <div className="space-y-4">
               <label className="text-sm font-bold uppercase tracking-widest">Overall Recommendation</label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -241,11 +259,10 @@ const ReviewForm = () => {
               </div>
             </div>
 
+            {/* Comments */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-2">
-                <label className="text-sm font-bold uppercase tracking-widest ml-1">
-                  Comments for Authors
-                </label>
+                <label className="text-sm font-bold uppercase tracking-widest ml-1">Comments for Authors</label>
                 <Textarea
                   name="commentsForAuthors"
                   value={formData.commentsForAuthors}
@@ -255,9 +272,7 @@ const ReviewForm = () => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-bold uppercase tracking-widest ml-1">
-                  Comments for Organizers
-                </label>
+                <label className="text-sm font-bold uppercase tracking-widest ml-1">Comments for Editor</label>
                 <Textarea
                   name="commentsForOrganizers"
                   value={formData.commentsForOrganizers}
@@ -268,6 +283,7 @@ const ReviewForm = () => {
               </div>
             </div>
 
+            {/* Submit Button */}
             <div className="pt-8 border-t border-border">
               <Button
                 type="submit"

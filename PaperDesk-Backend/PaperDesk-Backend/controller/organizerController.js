@@ -406,40 +406,48 @@ export const getReviewManagementDataController = async (req, res) => {
   try {
     const { conferenceId } = req.params;
 
-    // NOTE: validation_info replaces the old compliance_report column.
-    // compliance_report has been removed from this select entirely.
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select("id, title, status, final_decision, validation_info, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
       .eq("conference_id", conferenceId);
 
     if (papersError) {
+      console.error("Error fetching papers:", papersError);
       return res.status(500).json({ success: false, message: "Error fetching review management data." });
     }
 
-    const paperIds = (papers || []).map((p) => p.id);
+    // If there are no papers, return an empty array immediately
+    if (!papers || papers.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No papers found for this conference.",
+        data: [],
+      });
+    }
 
-    const { data: allReviews } = await supabase
+    const paperIds = papers.map((p) => p.id);
+
+    // Only fetch reviews and assignments if there are papers
+    let allReviews = [];
+    let allAssignments = [];
+
+    const { data: reviews, error: reviewsError } = await supabase
       .from("reviews")
       .select("id, paper_id, reviewer_id, overall_recommendation, technical_confidence, comments_for_authors, comments_for_organizers")
       .in("paper_id", paperIds);
+    if (!reviewsError) allReviews = reviews || [];
 
-    // Also fetch due_date from assignments so it can be included in the table data.
-    const { data: allAssignments } = await supabase
+    const { data: assignments, error: assignmentsError } = await supabase
       .from("assignments")
       .select("paper_id, reviewer_id, due_date, users!reviewer_id(name)")
       .eq("conference_id", conferenceId);
+    if (!assignmentsError) allAssignments = assignments || [];
 
-    const tableData = (papers || []).map((paper) => {
-      const paperAssignments = (allAssignments || []).filter(
-        (a) => a.paper_id === paper.id
-      );
-
-      // Build reviewer entries merging assignment and review data.
+    // Build the table data as before (rest of the mapping unchanged)...
+    const tableData = papers.map((paper) => {
+      const paperAssignments = allAssignments.filter((a) => a.paper_id === paper.id);
       const reviewers = paperAssignments.map((assignment) => {
-        const review = (allReviews || []).find(
-          (r) => r.paper_id === paper.id && r.reviewer_id === assignment.reviewer_id
-        );
+        const review = allReviews.find((r) => r.paper_id === paper.id && r.reviewer_id === assignment.reviewer_id);
         return {
           name: assignment.users?.name || "Unknown Reviewer",
           reviewerId: assignment.reviewer_id,
@@ -450,7 +458,7 @@ export const getReviewManagementDataController = async (req, res) => {
             : "0.00",
           commentsForOrganizers: review?.comments_for_organizers || null,
           commentsForAuthors: review?.comments_for_authors || null,
-          dueDate: assignment.due_date || null, // UTC — frontend converts to local time
+          dueDate: assignment.due_date || null,
         };
       });
 
@@ -458,22 +466,14 @@ export const getReviewManagementDataController = async (req, res) => {
         (sum, r) => sum + (typeof r.technicalConfidence === "number" ? r.technicalConfidence : 0),
         0
       );
-      const avgTechConfidence =
-        reviewers.length > 0 ? Number(totalTechConfidence / reviewers.length).toFixed(2) : "N/A";
+      const avgTechConfidence = reviewers.length > 0 ? Number(totalTechConfidence / reviewers.length).toFixed(2) : "N/A";
 
       const authors = (paper.paper_authors || []).map((pa) => ({
         name: pa.authors?.first_name,
         email: pa.authors?.email,
       }));
 
-      // Use the due_date from the first assignment as the paper-level due date
-      // (all assignments for a paper share the same due date).
       const paperDueDate = paperAssignments[0]?.due_date || null;
-
-      // validation_info shape: { isValid, message, fileInfo: { pages, sizeMB, ... } }
-      // validationScore exposes isValid as a boolean for the frontend table.
-      // The full validation_info object is also passed so the frontend can show
-      // detailed file info (pages, size, parse errors) if needed.
       const validationInfo = paper.validation_info ?? null;
 
       return {
@@ -484,15 +484,13 @@ export const getReviewManagementDataController = async (req, res) => {
         status: paper.status,
         decision: paper.final_decision,
         avgTechConfidence,
-        // validation_info replaces complianceScore from the old IEEE checker.
-        // isValid: true means the PDF passed all format/readability checks.
         validationInfo,
         validationScore: validationInfo?.isValid ?? null,
         plagiarismScore: paper.organizer_plagiarism_score ?? null,
         organizerCommentsForAuthors: paper.organizer_comments_for_authors ?? null,
         authors,
         conferenceName: paper.conference_name,
-        dueDate: paperDueDate, // UTC ISO string — frontend converts to local time
+        dueDate: paperDueDate,
       };
     });
 
@@ -502,7 +500,8 @@ export const getReviewManagementDataController = async (req, res) => {
       data: tableData,
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error fetching review management data." });
+    console.error("getReviewManagementDataController error:", error);
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 };
 

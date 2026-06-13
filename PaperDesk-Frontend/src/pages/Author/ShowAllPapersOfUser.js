@@ -81,7 +81,7 @@ const decisionLabel = (decision) => {
 };
 
 // ---------------------------------------------------------------------------
-// PDF Validation inline block
+// PDF Validation inline block (FIXED: uses 'validated' field from backend)
 // ---------------------------------------------------------------------------
 const ValidationBlock = ({ validationInfo }) => {
   if (validationInfo === null || validationInfo === undefined) {
@@ -92,21 +92,24 @@ const ValidationBlock = ({ validationInfo }) => {
     );
   }
 
+  // Backend stores the flag as 'validated', not 'isValid'
+  const isValid = validationInfo.validated === true;
+
   return (
     <div
       className={`flex items-start gap-2 rounded-md px-2.5 py-2 text-xs border ${
-        validationInfo.isValid
+        isValid
           ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
           : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
       }`}
     >
-      {validationInfo.isValid ? (
+      {isValid ? (
         <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
       ) : (
         <XCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
       )}
       <div className="space-y-0.5">
-        <p className="font-semibold">{validationInfo.isValid ? "Valid PDF" : "Invalid PDF"}</p>
+        <p className="font-semibold">{isValid ? "Valid PDF" : "Invalid PDF"}</p>
         <p className="opacity-80">{validationInfo.message}</p>
         {validationInfo.fileInfo && (
           <p className="opacity-70">
@@ -182,7 +185,7 @@ const ResubmissionCounter = ({ submissionStatus }) => {
 };
 
 // ---------------------------------------------------------------------------
-// PaperCard
+// PaperCard component
 // ---------------------------------------------------------------------------
 const PaperCard = ({ paper, onDelete, conferenceId }) => {
   const navigate = useNavigate();
@@ -194,6 +197,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 
   const paperId = paper.id || paper._id;
 
+  // Fetch resubmission status for this paper and conference
   useEffect(() => {
     if (!conferenceId || !paperId) return;
     setLoadingStatus(true);
@@ -210,6 +214,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
   const finalDecision = (paper.final_decision || "").toLowerCase();
   const paperStatus   = (paper.status || "pending").toLowerCase();
 
+  // Determine the effective status based on final decision or paper status
   const effectiveStatus = (() => {
     if (finalDecision === "rejected")              return "rejected";
     if (finalDecision === "accepted")              return "accepted";
@@ -224,6 +229,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 
   const canResubmitByLimit = submissionStatus ? submissionStatus.canResubmit : true;
 
+  // Determine if the paper can be edited or deleted
   const canEdit =
     !isRejected &&
     !isAccepted &&
@@ -257,9 +263,11 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     }
   };
 
+  // Organizer comments for the author
   const organizerComments =
     paper.organizer_comments_for_authors ?? paper.organizerCommentsForAuthors ?? null;
 
+  // Collect all comments (from reviews + organizer)
   const allComments = [];
   if (paper.reviews?.length > 0) {
     paper.reviews.forEach((review) => {
@@ -275,7 +283,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     allComments.push({ text: organizerComments, confidence: null });
   }
 
-  // Read validation_info from whichever key the API returns
+  // Validation info may come as 'validationInfo' or 'validation_info'
   const validationInfo =
     paper.validationInfo ?? paper.validation_info ?? null;
 
@@ -310,6 +318,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3 flex-1">
+          {/* Keywords */}
           {paper.keywords?.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {paper.keywords.map((kw, i) => (
@@ -320,6 +329,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             </div>
           )}
 
+          {/* Submission date */}
           <p className="text-xs text-muted-foreground">
             Submitted:{" "}
             {paper.created_at
@@ -331,6 +341,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
               : "--"}
           </p>
 
+          {/* View paper link */}
           {paper.paper_file_path && (
             <a
               href={paper.paper_file_path}
@@ -343,6 +354,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             </a>
           )}
 
+          {/* Edit / Delete / Resubmit buttons */}
           {canEdit && (
             <div className="relative group flex gap-2 mt-auto pt-2">
               {isModRequired ? (
@@ -395,6 +407,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             </div>
           )}
 
+          {/* Expand/collapse details */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="flex items-center gap-1 text-xs text-primary hover:underline font-medium mt-1 w-fit"
@@ -406,6 +419,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             )}
           </button>
 
+          {/* Expanded details */}
           {isExpanded && (
             <div className="mt-2 pt-3 border-t border-border space-y-3 text-sm animate-fade-in">
               {paper.abstract && (
@@ -438,7 +452,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 </div>
               )}
 
-              {/* PDF Validation — replaces the old IEEE Compliance progress bar */}
+              {/* PDF Validation display */}
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                   PDF Validation
@@ -446,6 +460,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 <ValidationBlock validationInfo={validationInfo} />
               </div>
 
+              {/* Reviewer & Organizer comments */}
               {allComments.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
@@ -470,6 +485,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
         </CardContent>
       </Card>
 
+      {/* Delete confirmation modal */}
       {showDeleteModal && (
         <DeleteModal
           title={paper.title}
@@ -485,7 +501,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 };
 
 // ---------------------------------------------------------------------------
-// PaperCardSkeleton
+// Skeleton loader for PaperCard
 // ---------------------------------------------------------------------------
 const PaperCardSkeleton = () => (
   <div className="rounded-xl border bg-card p-5 space-y-3">
@@ -506,7 +522,7 @@ const PaperCardSkeleton = () => (
 );
 
 // ---------------------------------------------------------------------------
-// AllPapersOfAuthor
+// Main component: AllPapersOfAuthor
 // ---------------------------------------------------------------------------
 const AllPapersOfAuthor = () => {
   const [auth] = useAuth();
@@ -519,6 +535,7 @@ const AllPapersOfAuthor = () => {
   const [loadingConferences, setLoadingConferences] = useState(false);
   const [loadingPapers, setLoadingPapers] = useState(false);
 
+  // Fetch all conferences where the user is an author
   useEffect(() => {
     if (!userId) return;
     const fetchConferences = async () => {
@@ -536,6 +553,7 @@ const AllPapersOfAuthor = () => {
     fetchConferences();
   }, [userId]);
 
+  // Fetch papers for the selected conference
   useEffect(() => {
     if (!selectedConferenceId || !userId) return;
     const fetchPapers = async () => {
@@ -597,6 +615,7 @@ const AllPapersOfAuthor = () => {
           </p>
         </div>
 
+        {/* Conference selector */}
         <div className="max-w-sm mb-8">
           <label className="block text-sm font-medium text-foreground mb-2">Conference</label>
           {loadingConferences ? (
@@ -622,6 +641,7 @@ const AllPapersOfAuthor = () => {
           )}
         </div>
 
+        {/* Selected conference header */}
         {selectedConferenceName && (
           <div className="flex items-center gap-2 mb-6">
             <FileText className="h-4 w-4 text-primary" />
@@ -637,6 +657,7 @@ const AllPapersOfAuthor = () => {
           </div>
         )}
 
+        {/* Papers list or skeletons */}
         {loadingPapers && (
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
             {[1, 2, 3].map((i) => <PaperCardSkeleton key={i} />)}

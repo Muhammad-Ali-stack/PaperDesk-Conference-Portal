@@ -30,7 +30,7 @@
     "nodemon": "^3.1.7",
     "p-queue": "^9.1.0",
     "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse": "^1.1.1",
     "title-case": "^4.3.2"
   },
   "optionalDependencies": {

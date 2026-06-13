@@ -156,14 +156,12 @@ const UserProfile = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="phone" className="text-sm sm:text-base">Phone Number</Label>
+                    <Label htmlFor="phone" className="text-sm sm:text-base">Phone Number (Locked)</Label>
                     <Input
                       id="phone"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+1 (234) 567-890"
-                      required
-                      className="text-sm sm:text-base"
+                      disabled
+                      className="opacity-60 cursor-not-allowed text-sm sm:text-base"
                     />
                   </div>
 

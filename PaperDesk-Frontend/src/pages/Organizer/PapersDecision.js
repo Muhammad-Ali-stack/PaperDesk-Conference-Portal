@@ -5,35 +5,8 @@ import Layout from "../../components/Layout";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { FileText, CheckCircle, XCircle } from "lucide-react";
+import { FileText } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
-
-// Inline validation badge — no separate file needed for this page
-function ValidationBadge({ validationInfo }) {
-  if (validationInfo === null || validationInfo === undefined) {
-    return <span className="text-muted-foreground text-xs">—</span>;
-  }
-  if (validationInfo.isValid) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold"
-        title={validationInfo.message ?? ""}
-      >
-        <CheckCircle className="h-3.5 w-3.5" />
-        Valid
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-semibold"
-      title={validationInfo.message ?? ""}
-    >
-      <XCircle className="h-3.5 w-3.5" />
-      Invalid
-    </span>
-  );
-}
 
 export default function ConferencePapersDecisions() {
   const { conferenceId, conferenceName } = useOrganizerConference();
@@ -67,7 +40,7 @@ export default function ConferencePapersDecisions() {
   const filteredPapers =
     selectedCategory === "ALL" ? papers : groupedPapers[selectedCategory] || [];
 
-  const TABLE_HEADERS = ["S.No", "Title", "Keywords", "Authors", "Reviewers", "Validation", "Paper", "Final Decision"];
+  const TABLE_HEADERS = ["S.No", "Title", "Keywords", "Authors", "Reviewers", "Paper", "Final Decision"];
 
   const TableSkeleton = () => (
     <Card className="mb-8 shadow-sm">
@@ -94,7 +67,6 @@ export default function ConferencePapersDecisions() {
                     <Skeleton className="h-4 w-36" />
                   </td>
                   <td className="px-6 py-4"><Skeleton className="h-4 w-40" /></td>
-                  <td className="px-6 py-4"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-6 py-4"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-6 py-4"><Skeleton className="h-6 w-24 rounded-full" /></td>
                 </tr>
@@ -138,10 +110,6 @@ export default function ConferencePapersDecisions() {
                       .join(", ");
                   }
 
-                  // Read validation_info — null for legacy papers
-                  const validationInfo =
-                    paper.validationInfo ?? paper.validation_info ?? null;
-
                   return (
                     <tr key={paper._id} className="hover:bg-muted/30">
                       <td className="px-6 py-4">{idx + 1}</td>
@@ -155,10 +123,6 @@ export default function ConferencePapersDecisions() {
                         ))}
                       </td>
                       <td className="px-6 py-4">{reviewerNames}</td>
-                      {/* Validation column — replaces the old IEEE compliance column */}
-                      <td className="px-6 py-4">
-                        <ValidationBadge validationInfo={validationInfo} />
-                      </td>
                       <td className="px-6 py-4">
                         <a
                           href={paper.paper_file_path}
@@ -190,7 +154,7 @@ export default function ConferencePapersDecisions() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <td colSpan={7} className="text-center py-8 text-muted-foreground">
                     No papers found.
                   </td>
                 </tr>

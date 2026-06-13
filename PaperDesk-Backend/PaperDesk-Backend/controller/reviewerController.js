@@ -60,7 +60,66 @@ export const reviewerRegisterController = async (req, res) => {
     return res.status(500).json({ success: false, message: "Error during registration." });
   }
 };
+/**
+ * Fetches the plagiarism score for a specific paper.
+ * Security: Only returns the score if the requesting reviewer is assigned to the paper.
+ *
+ * @route GET /api/reviewer/paper/:paperId/plagiarism-score
+ * @param {string} req.params.paperId
+ * @returns {200} { plagiarismScore: number | null }
+ * @returns {403} Reviewer not assigned to this paper.
+ * @returns {404} Paper not found.
+ * @returns {500} Server error.
+ */
+export const getPlagiarismScoreForPaperController = async (req, res) => {
+  try {
+    const { paperId } = req.params;
+    const reviewerId = req.user?.id || req.user?._id;
 
+    if (!reviewerId) {
+      return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    // Verify that this reviewer is actually assigned to this paper
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("assignments")
+      .select("id")
+      .eq("paper_id", paperId)
+      .eq("reviewer_id", reviewerId)
+      .maybeSingle();
+
+    if (assignmentError || !assignment) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not assigned to review this paper.",
+      });
+    }
+
+    // Fetch the plagiarism score from the research_papers table
+    const { data: paper, error: paperError } = await supabase
+      .from("research_papers")
+      .select("organizer_plagiarism_score")
+      .eq("id", paperId)
+      .maybeSingle();
+
+    if (paperError || !paper) {
+      return res.status(404).json({ success: false, message: "Paper not found." });
+    }
+
+    const plagiarismScore = paper.organizer_plagiarism_score ?? null;
+
+    return res.status(200).json({
+      success: true,
+      data: { plagiarismScore },
+    });
+  } catch (error) {
+    console.error("getPlagiarismScoreForPaperController error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch plagiarism score.",
+    });
+  }
+};
 /**
  * Authenticates a reviewer by email and password.
  * Returns a signed JWT valid for 3 days on success.

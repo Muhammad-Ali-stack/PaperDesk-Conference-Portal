@@ -52,7 +52,7 @@ function AuthorForm({ conferenceName }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [abstractWordCount, setAbstractWordCount] = useState(0);
 
-  // Stores the validation_info returned from the backend after successful submission.
+  // Stores the validation_info returned from the backend – used only for error toasts.
   const [validationResult, setValidationResult] = useState(null);
 
   const [countries, setCountries] = useState([]);
@@ -174,8 +174,7 @@ function AuthorForm({ conferenceName }) {
     setAuthors(newAuthors);
   };
 
-  // Handle PDF file selection — no pre-submission validation call.
-  // Validation happens automatically when the form is submitted.
+  // Handle PDF file selection.
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -257,15 +256,23 @@ function AuthorForm({ conferenceName }) {
 
       const response = await axios.post("/api/author/submit-paper", formData);
 
-      // Store validation_info from the response to display after submission.
+      // Get validation info from response
       const validation = response.data?.data?.validation ?? response.data?.data?.paper?.validation_info ?? null;
       setValidationResult(validation);
 
-      toast.success(response.data.message);
+      // If PDF validation failed, show error toast and do NOT navigate.
+      if (validation && validation.validated === false) {
+        toast.error(validation.message || "PDF validation failed. Please check your file.");
+        setValidationResult(null); // Clear so it doesn't render inline
+        return;
+      }
 
+      // Success: PDF passed validation and paper was saved.
+      toast.success(response.data.message);
       await fetchRoles(auth?.user?._id);
       navigate("/userdashboard/papers");
     } catch (error) {
+      console.error("Submission error:", error.response?.data);
       toast.error(
         error.response?.data?.message || "Error while submitting your paper"
       );
@@ -603,44 +610,8 @@ function AuthorForm({ conferenceName }) {
                   </div>
                 </div>
 
-                {/* PDF validation result — shown only after successful submission */}
-                {validationResult && (
-                  <div
-                    className={`mt-6 rounded-xl border p-4 flex items-start gap-3 ${
-                      validationResult.isValid
-                        ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
-                        : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
-                    }`}
-                  >
-                    {validationResult.isValid ? (
-                      <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                    ) : (
-                      <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                    )}
-                    <div className="space-y-1">
-                      <p
-                        className={`text-sm font-semibold ${
-                          validationResult.isValid
-                            ? "text-green-800 dark:text-green-200"
-                            : "text-red-800 dark:text-red-200"
-                        }`}
-                      >
-                        {validationResult.message}
-                      </p>
-                      {validationResult.fileInfo && (
-                        <p className="text-xs text-muted-foreground">
-                          {validationResult.fileInfo.pages != null &&
-                            `Pages: ${validationResult.fileInfo.pages}`}
-                          {validationResult.fileInfo.pages != null &&
-                            validationResult.fileInfo.sizeMB != null &&
-                            " · "}
-                          {validationResult.fileInfo.sizeMB != null &&
-                            `Size: ${validationResult.fileInfo.sizeMB} MB`}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* PDF validation result is no longer displayed on the page.
+                    Errors are shown as toast notifications. */}
               </CardContent>
             </Card>
 

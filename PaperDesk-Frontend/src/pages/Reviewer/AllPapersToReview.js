@@ -25,9 +25,9 @@ function getDueDateStatus(dueDateUTC) {
   const due = new Date(dueDateUTC);
   const hoursLeft = (due - now) / (1000 * 60 * 60);
 
-  if (hoursLeft < 0)   return "overdue";   // past deadline
-  if (hoursLeft <= 24) return "urgent";    // < 24 hours left
-  if (hoursLeft <= 72) return "soon";      // < 3 days left
+  if (hoursLeft < 0)   return "overdue";
+  if (hoursLeft <= 24) return "urgent";
+  if (hoursLeft <= 72) return "soon";
   return "ok";
 }
 
@@ -89,7 +89,6 @@ const AllPapersToReview = () => {
     try {
       const response = await axios.get(`/api/reviewer/assigned-papers/reviewer/${reviewerId}`);
       const rawData = response.data.data || [];
-      // Sort by assignedAt descending – newest first
       const sorted = [...rawData].sort((a, b) => new Date(b.assignedAt) - new Date(a.assignedAt));
       setAssignedPapers(sorted);
     } catch (err) {
@@ -114,8 +113,22 @@ const AllPapersToReview = () => {
     fetchAssignedPapers(false);
   };
 
+  // ─── Statistics ────────────────────────────────────────────────────────────
   const reviewedCount = assignedPapers.filter(p => p.isReviewedBy?.includes(reviewerId)).length;
-  const pendingCount  = assignedPapers.filter(p => !p.isReviewedBy?.includes(reviewerId) && p.finalDecision === "pending").length;
+
+  // Papers without a review AND the final decision is still "pending" (or null/undefined)
+  const pendingCount = assignedPapers.filter(p => {
+    const notReviewed = !p.isReviewedBy?.includes(reviewerId);
+    const decision = p.finalDecision ? p.finalDecision.toLowerCase() : "pending";
+    const isPending = decision === "pending";
+    return notReviewed && isPending;
+  }).length;
+
+  // Papers that have already received a final decision from the organizer (accepted, rejected, modification required)
+  const decidedCount = assignedPapers.filter(p => {
+    const decision = p.finalDecision ? p.finalDecision.toLowerCase() : "pending";
+    return decision !== "pending";
+  }).length;
 
   const getPlagiarismBadge = (paper) => {
     const score = paper.plagiarismScore ?? paper.organizer_plagiarism_score;
@@ -139,6 +152,7 @@ const AllPapersToReview = () => {
                 <div className="flex items-center gap-2">
                   <Badge variant="success" className="text-sm px-3 py-1">{reviewedCount} Reviewed</Badge>
                   <Badge variant="warning" className="text-sm px-3 py-1">{pendingCount} Pending</Badge>
+                  <Badge variant="secondary" className="text-sm px-3 py-1">{decidedCount} Decided</Badge>
                 </div>
               )}
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
@@ -164,11 +178,12 @@ const AllPapersToReview = () => {
             <div className="space-y-4">
               {assignedPapers.map((paper) => {
                 const isReviewed    = paper.isReviewedBy?.includes(reviewerId);
-                const decisionGiven = paper.finalDecision && paper.finalDecision !== "pending";
+                const finalDecision = paper.finalDecision ? paper.finalDecision.toLowerCase() : "pending";
+                const hasFinalDecision = finalDecision !== "pending";
                 const isOverdue     = getDueDateStatus(paper.dueDate) === "overdue";
 
-                // Disable card if: already reviewed, decision given, OR past due date
-                const disabled = isReviewed || decisionGiven || isOverdue;
+                // Disable card if: already reviewed, final decision given, OR past due date
+                const disabled = isReviewed || hasFinalDecision || isOverdue;
 
                 return (
                   <Card
@@ -177,41 +192,47 @@ const AllPapersToReview = () => {
                       disabled
                         ? "opacity-60 grayscale pointer-events-none"
                         : "hover:shadow-md"
-                    } ${isOverdue && !isReviewed && !decisionGiven ? "border-red-200 bg-red-50/30" : ""}`}
+                    } ${isOverdue && !isReviewed && !hasFinalDecision ? "border-red-200 bg-red-50/30" : ""}`}
                   >
                     <CardContent className="p-6">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5">
                         <div className="flex-1 min-w-0">
 
-                          {/* ── Badges row ── */}
+                          {/* Badges row */}
                           <div className="flex flex-wrap items-center gap-2 mb-2">
                             <Badge variant="teal" className="text-[10px]">{paper.conferenceAcronym}</Badge>
                             {isReviewed    && <Badge variant="success"   className="text-[10px]">Reviewed</Badge>}
-                            {decisionGiven && <Badge variant="secondary" className="text-[10px]">Final Decision Given by Editor</Badge>}
-                            {isOverdue && !isReviewed && !decisionGiven && (
+                            {hasFinalDecision && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                {finalDecision === "accepted" && "Accepted"}
+                                {finalDecision === "rejected" && "Rejected"}
+                                {finalDecision === "modification required" && "Modification Required"}
+                              </Badge>
+                            )}
+                            {isOverdue && !isReviewed && !hasFinalDecision && (
                               <Badge variant="destructive" className="text-[10px]">Deadline Passed</Badge>
                             )}
                             {getPlagiarismBadge(paper)}
                           </div>
 
-                          {/* ── Title & abstract ── */}
+                          {/* Title & abstract */}
                           <h2 className="font-bold text-base mb-1 truncate">{paper.title}</h2>
                           {paper.abstract && (
                             <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{paper.abstract}</p>
                           )}
                           <p className="text-xs text-muted-foreground font-medium mb-2">{paper.conferenceName}</p>
 
-                          {/* ── Due date ── */}
+                          {/* Due date */}
                           <DueDateBadge dueDateUTC={paper.dueDate} />
 
-                          {/* ── Info notices ── */}
-                          {decisionGiven && (
+                          {/* Info notices */}
+                          {hasFinalDecision && (
                             <div className="flex items-center gap-1.5 mt-3 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
                               <Info className="h-3.5 w-3.5 flex-shrink-0" />
                               Organizer has already given a final decision on this paper
                             </div>
                           )}
-                          {isOverdue && !isReviewed && !decisionGiven && (
+                          {isOverdue && !isReviewed && !hasFinalDecision && (
                             <div className="flex items-center gap-1.5 mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
                               <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
                               The review deadline for this paper has passed
@@ -220,7 +241,7 @@ const AllPapersToReview = () => {
 
                         </div>
 
-                        {/* ── Action buttons ── */}
+                        {/* Action buttons */}
                         <div className="flex flex-col gap-2 md:w-44 flex-shrink-0">
                           {paper.paperFilePath && (
                             <Button size="sm" variant="outline" asChild>
@@ -233,7 +254,7 @@ const AllPapersToReview = () => {
                             <Button size="sm" variant="secondary" disabled>
                               <CheckCircle className="h-3.5 w-3.5 mr-1.5" /> Completed
                             </Button>
-                          ) : decisionGiven ? (
+                          ) : hasFinalDecision ? (
                             <Button size="sm" variant="outline" disabled>Decision Given</Button>
                           ) : isOverdue ? (
                             <Button size="sm" variant="outline" disabled>

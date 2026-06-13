@@ -1,19 +1,11 @@
-// Use dynamic import for pdf-parse (CommonJS) or access default properly
 import { fileTypeFromBuffer } from "file-type";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 
 const MAX_PDF_SIZE_MB = 20;
 const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
-
-// Helper to load pdf-parse (CommonJS) in an ES module environment
-let pdfParse;
-const loadPdfParse = async () => {
-  if (!pdfParse) {
-    // When importing a CommonJS module in ESM, the default export is often the module itself
-    const module = await import('pdf-parse');
-    pdfParse = module.default || module;
-  }
-  return pdfParse;
-};
 
 /**
  * Simple PDF validator - checks file format, size, and readability
@@ -21,7 +13,7 @@ const loadPdfParse = async () => {
  */
 export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
   try {
-    // ---- Check 1: File size ----
+    // Check 1: File exists and is not empty
     if (!pdfBuffer || pdfBuffer.length === 0) {
       return {
         isValid: false,
@@ -30,10 +22,15 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
       };
     }
 
+    // Check 2: File size
     if (pdfBuffer.length > MAX_PDF_SIZE_BYTES) {
       return {
         isValid: false,
-        message: `File size exceeds ${MAX_PDF_SIZE_MB}MB limit. Current size: ${(pdfBuffer.length / 1024 / 1024).toFixed(2)}MB`,
+        message: `File size exceeds ${MAX_PDF_SIZE_MB}MB limit. Current size: ${(
+          pdfBuffer.length /
+          1024 /
+          1024
+        ).toFixed(2)}MB`,
         fileInfo: {
           filename,
           sizeBytes: pdfBuffer.length,
@@ -42,13 +39,15 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
       };
     }
 
-    // ---- Check 2: File type ----
+    // Check 3: Verify file type
     const fileType = await fileTypeFromBuffer(pdfBuffer);
-    
+
     if (!fileType || fileType.mime !== "application/pdf") {
       return {
         isValid: false,
-        message: "File is not a valid PDF. Detected type: " + (fileType?.mime || "unknown"),
+        message: `File is not a valid PDF. Detected type: ${
+          fileType?.mime || "unknown"
+        }`,
         fileInfo: {
           filename,
           detectedType: fileType?.mime || "unknown",
@@ -58,15 +57,15 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
       };
     }
 
-    // ---- Check 3: PDF readability (can we parse it?) ----
-    const parsePdf = await loadPdfParse();
+    // Check 4: Verify PDF readability
     let pdfData;
+
     try {
-      pdfData = await parsePdf(pdfBuffer);
+      pdfData = await pdfParse(pdfBuffer);
     } catch (parseError) {
       return {
         isValid: false,
-        message: "PDF is corrupted or not readable: " + parseError.message,
+        message: `PDF is corrupted or not readable: ${parseError.message}`,
         fileInfo: {
           filename,
           sizeBytes: pdfBuffer.length,
@@ -76,8 +75,8 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
       };
     }
 
-    // ---- Check 4: Has content ----
-    if (!pdfData || pdfData.numpages === 0) {
+    // Check 5: Verify PDF has pages
+    if (!pdfData || pdfData.numpages <= 0) {
       return {
         isValid: false,
         message: "PDF has no pages.",
@@ -90,7 +89,7 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
       };
     }
 
-    // ---- All checks passed ----
+    // All checks passed
     return {
       isValid: true,
       message: "PDF is valid and ready for submission.",
@@ -107,7 +106,7 @@ export const validatePdf = async (pdfBuffer, filename = "file.pdf") => {
   } catch (error) {
     return {
       isValid: false,
-      message: "Error validating PDF: " + error.message,
+      message: `Error validating PDF: ${error.message}`,
       fileInfo: null,
     };
   }
