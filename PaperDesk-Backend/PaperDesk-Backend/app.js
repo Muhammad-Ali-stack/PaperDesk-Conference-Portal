@@ -30,7 +30,7 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "success",
-    message: "ConForum API is running.",
+    message: "PaperDesk API is running.",
   });
 });
 

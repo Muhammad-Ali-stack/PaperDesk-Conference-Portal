@@ -41,28 +41,6 @@ The following environment variables must be set for full functionality:
 - `PORT` — Set to `5000` (already configured in .replit)
 - Email transporter credentials for organizer, reviewer, invitation, otp, and fallback email types
 
-## Project Structure
-
-```
-workspace/
-├── Conforum Backend/       ← Node.js / Express REST API (Supabase PostgreSQL)
-│   ├── config/             # Multer, nodemailer, supabase, env
-│   ├── controller/         # Route handlers (all use Supabase)
-│   ├── middleware/         # JWT auth & file upload
-│   ├── model/              # Legacy Mongoose schemas (unused — kept for reference)
-│   ├── routes/             # Express route definitions
-│   ├── utils_helpers/      # bcrypt utilities
-│   ├── schema.sql          # Supabase PostgreSQL schema (run once in Supabase SQL editor)
-│   ├── server.js           # Entry point (no MongoDB)
-│   ├── package.json
-│   └── .env                # All backend environment variables
-│
-└── Conforum IEEE Checker/  ← Flask IEEE compliance microservice
-    ├── app.py              # Flask app (single file)
-    ├── requirements.txt
-    └── .env                # FLASK_PORT
-```
-
 ---
 
 ## Database — Supabase PostgreSQL
