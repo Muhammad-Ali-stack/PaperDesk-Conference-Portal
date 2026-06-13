@@ -1,4 +1,4 @@
-// Central email-sending interface for ConForum.
+// Central email-sending interface for PaperDesk.
 //
 // sendEmail(type, mailOptions) -- the only export callers need.
 //

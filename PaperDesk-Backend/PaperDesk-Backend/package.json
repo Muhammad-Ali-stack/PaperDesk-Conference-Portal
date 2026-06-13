@@ -1,7 +1,7 @@
 {
-  "name": "conforum-backend",
+  "name": "paperdesk-backend",
   "version": "1.0.0",
-  "description": "ConForum — Conference Management System API",
+  "description": "PaperDesk — Conference Management System API",
   "main": "server.js",
   "type": "module",
   "scripts": {

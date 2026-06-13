@@ -1,12 +1,12 @@
-# ConForum — Conference Management System
+# PaperDesk — Conference Management System
 
 ## Overview
-ConForum is a full-stack conference management platform that handles the entire lifecycle of academic and professional conferences — from submission to peer review to proceedings generation.
+PaperDesk is a full-stack conference management platform that handles the entire lifecycle of academic and professional conferences — from submission to peer review to proceedings generation.
 
 ## Architecture
 The project has two services that run in parallel:
 
-### 1. `conforum-backend/` — Node.js/Express REST API (port 5000)
+### 1. `PaperDesk-backend/` — Node.js/Express REST API (port 5000)
 The core backend API handling:
 - **Authentication**: JWT-based auth with role-based access (Admin, Organizer, Reviewer, Author)
 - **Conference Management**: Create, approve/reject conferences
@@ -15,22 +15,22 @@ The core backend API handling:
 - **Proceedings Generation**: Compile accepted papers into a PDF using pdf-lib
 - **Email Notifications**: Transactional emails via Nodemailer with queue management
 
-### 2. `conforum-ieee-checker/` — Python/Flask microservice (port 6000)
+### 2. `PaperDesk-ieee-checker/` — Python/Flask microservice (port 6000)
 A PDF analysis service that:
 - Checks IEEE formatting compliance (layout, fonts, abstract length, headings, references, etc.)
 - Called internally by the Node.js backend via HTTP at `http://localhost:6000`
 - Uses PyMuPDF (fitz) for advanced PDF parsing
 
 ## Database
-PostgreSQL managed via **Supabase**. Schema defined in `conforum-backend/schema.sql`.
+PostgreSQL managed via **Supabase**. Schema defined in `PaperDesk-backend/schema.sql`.
 
 ## Key Dependencies
 - **Node.js backend**: express, @supabase/supabase-js, jsonwebtoken, bcrypt, nodemailer, multer, pdf-lib, axios, p-queue
 - **Python microservice**: flask, pymupdf
 
 ## Workflows
-- **Start application**: `cd conforum-backend && node server.js` → port 5000 (webview)
-- **Flask IEEE Checker**: `cd conforum-ieee-checker && python3 app.py` → port 6000 (console)
+- **Start application**: `cd PaperDesk-backend && node server.js` → port 5000 (webview)
+- **Flask IEEE Checker**: `cd PaperDesk-ieee-checker && python3 app.py` → port 6000 (console)
 
 ## Environment Variables Required
 The following environment variables must be set for full functionality:
@@ -138,14 +138,14 @@ Authors automatically receive email notifications at each stage of the review pr
 
 ### Node/Express Backend
 ```bash
-cd "conforum-backend"
+cd "PaperDesk-backend"
 npm install
 node server.js   # port 8080
 ```
 
 ### Flask IEEE Checker
 ```bash
-cd "conforum-ieee-checker"
+cd "PaperDesk-ieee-checker"
 pip install -r requirements.txt
 python app.py    # port 6000
 ```
