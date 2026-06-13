@@ -5,8 +5,35 @@ import Layout from "../../components/Layout";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { FileText } from "lucide-react";
+import { FileText, CheckCircle, XCircle } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
+
+// Inline validation badge — no separate file needed for this page
+function ValidationBadge({ validationInfo }) {
+  if (validationInfo === null || validationInfo === undefined) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  if (validationInfo.isValid) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold"
+        title={validationInfo.message ?? ""}
+      >
+        <CheckCircle className="h-3.5 w-3.5" />
+        Valid
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-semibold"
+      title={validationInfo.message ?? ""}
+    >
+      <XCircle className="h-3.5 w-3.5" />
+      Invalid
+    </span>
+  );
+}
 
 export default function ConferencePapersDecisions() {
   const { conferenceId, conferenceName } = useOrganizerConference();
@@ -28,13 +55,7 @@ export default function ConferencePapersDecisions() {
     fetchPapers();
   }, [conferenceId]);
 
-  const categories = [
-    "ALL",
-    "ACCEPTED",
-    "PENDING",
-    "REJECTED",
-    "MODIFICATION REQUIRED",
-  ];
+  const categories = ["ALL", "ACCEPTED", "PENDING", "REJECTED", "MODIFICATION REQUIRED"];
 
   const groupedPapers = papers.reduce((acc, paper) => {
     const status = paper.final_decision?.toUpperCase() || "PENDING";
@@ -46,7 +67,8 @@ export default function ConferencePapersDecisions() {
   const filteredPapers =
     selectedCategory === "ALL" ? papers : groupedPapers[selectedCategory] || [];
 
-  //  MATCHES REAL TABLE STRUCTURE EXACTLY
+  const TABLE_HEADERS = ["S.No", "Title", "Keywords", "Authors", "Reviewers", "Validation", "Paper", "Final Decision"];
+
   const TableSkeleton = () => (
     <Card className="mb-8 shadow-sm">
       <CardContent className="p-0">
@@ -54,17 +76,13 @@ export default function ConferencePapersDecisions() {
           <table className="w-full">
             <thead>
               <tr className="border-b bg-muted/40 dark:bg-muted/20">
-                {["S.No", "Title", "Keywords", "Authors", "Reviewers", "Paper", "Final Decision"].map((h, i) => (
-                  <th
-                    key={i}
-                    className="text-left px-6 py-4 text-xs font-bold uppercase tracking-wider text-muted-foreground"
-                  >
+                {TABLE_HEADERS.map((h, i) => (
+                  <th key={i} className="text-left px-6 py-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-
             <tbody className="divide-y divide-border">
               {Array.from({ length: 6 }).map((_, idx) => (
                 <tr key={idx} className="hover:bg-muted/30">
@@ -76,10 +94,9 @@ export default function ConferencePapersDecisions() {
                     <Skeleton className="h-4 w-36" />
                   </td>
                   <td className="px-6 py-4"><Skeleton className="h-4 w-40" /></td>
+                  <td className="px-6 py-4"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-6 py-4"><Skeleton className="h-4 w-20" /></td>
-                  <td className="px-6 py-4">
-                    <Skeleton className="h-6 w-24 rounded-full" />
-                  </td>
+                  <td className="px-6 py-4"><Skeleton className="h-6 w-24 rounded-full" /></td>
                 </tr>
               ))}
             </tbody>
@@ -104,35 +121,32 @@ export default function ConferencePapersDecisions() {
           <table className="w-full">
             <thead>
               <tr className="border-b bg-muted/40 dark:bg-muted/20">
-                {["S.No", "Title", "Keywords", "Authors", "Reviewers", "Paper", "Final Decision"].map((h, i) => (
-                  <th
-                    key={i}
-                    className="text-left px-6 py-4 text-xs font-bold uppercase tracking-wider text-muted-foreground"
-                  >
+                {TABLE_HEADERS.map((h, i) => (
+                  <th key={i} className="text-left px-6 py-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-
             <tbody className="divide-y divide-border">
               {papersList.length > 0 ? (
                 papersList.map((paper, idx) => {
                   let reviewerNames = "N/A";
-
                   if (paper.reviews) {
                     reviewerNames = paper.reviews
-                      .map(r => r.reviewerId?.name || r.reviewer?.name || "-")
+                      .map((r) => r.reviewerId?.name || r.reviewer?.name || "-")
                       .join(", ");
                   }
+
+                  // Read validation_info — null for legacy papers
+                  const validationInfo =
+                    paper.validationInfo ?? paper.validation_info ?? null;
 
                   return (
                     <tr key={paper._id} className="hover:bg-muted/30">
                       <td className="px-6 py-4">{idx + 1}</td>
                       <td className="px-6 py-4 font-medium">{paper.title}</td>
-                      <td className="px-6 py-4">
-                        {paper.keywords?.join(", ") || "N/A"}
-                      </td>
+                      <td className="px-6 py-4">{paper.keywords?.join(", ") || "N/A"}</td>
                       <td className="px-6 py-4">
                         {paper.authors?.map((a, i) => (
                           <div key={i}>
@@ -141,6 +155,10 @@ export default function ConferencePapersDecisions() {
                         ))}
                       </td>
                       <td className="px-6 py-4">{reviewerNames}</td>
+                      {/* Validation column — replaces the old IEEE compliance column */}
+                      <td className="px-6 py-4">
+                        <ValidationBadge validationInfo={validationInfo} />
+                      </td>
                       <td className="px-6 py-4">
                         <a
                           href={paper.paper_file_path}
@@ -172,7 +190,7 @@ export default function ConferencePapersDecisions() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="text-center py-8">
+                  <td colSpan={8} className="text-center py-8 text-muted-foreground">
                     No papers found.
                   </td>
                 </tr>
@@ -191,7 +209,6 @@ export default function ConferencePapersDecisions() {
           <div className="max-w-7xl mx-auto">
             <Skeleton className="h-8 w-80 mb-2" />
             <Skeleton className="h-4 w-60 mb-6" />
-
             <CategorySkeleton />
             <TableSkeleton />
           </div>
@@ -229,9 +246,7 @@ export default function ConferencePapersDecisions() {
                 (category) =>
                   groupedPapers[category] && (
                     <div key={category}>
-                      <h2 className="text-xl font-semibold mb-3">
-                        {category}
-                      </h2>
+                      <h2 className="text-xl font-semibold mb-3">{category}</h2>
                       {renderTable(groupedPapers[category])}
                     </div>
                   )

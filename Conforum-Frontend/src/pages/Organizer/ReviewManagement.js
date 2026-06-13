@@ -9,7 +9,10 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
-import { ChevronDown, ChevronUp, FileText, RefreshCw, ShieldCheck, Clock, AlertTriangle, Pencil, X, Check } from "lucide-react";
+import {
+  ChevronDown, ChevronUp, FileText, RefreshCw, ShieldCheck,
+  Clock, AlertTriangle, Pencil, X, Check, CheckCircle, XCircle,
+} from "lucide-react";
 
 // ─── Due Date Helpers ─────────────────────────────────────────────────────────
 
@@ -35,8 +38,7 @@ function getDueDateStatus(dueDateUTC) {
 function DueDatePill({ dueDateUTC }) {
   const formatted = formatDueDate(dueDateUTC);
   const status    = getDueDateStatus(dueDateUTC);
-
-  if (!formatted) return null; // don't show anything if no due date set
+  if (!formatted) return null;
 
   const styles = {
     overdue: "text-red-600 bg-red-50 border-red-200",
@@ -46,13 +48,40 @@ function DueDatePill({ dueDateUTC }) {
   };
 
   const Icon = status === "overdue" || status === "urgent" ? AlertTriangle : Clock;
-
   const label = status === "overdue" ? "Overdue" : "Due";
 
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${styles[status]}`}>
       <Icon className="w-2.5 h-2.5" />
       {label}: {formatted}
+    </span>
+  );
+}
+
+// ─── PDF Validation Badge ─────────────────────────────────────────────────────
+
+function ValidationBadge({ validationInfo }) {
+  if (validationInfo === null || validationInfo === undefined) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  if (validationInfo.isValid) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs font-semibold"
+        title={validationInfo.message ?? ""}
+      >
+        <CheckCircle className="h-3.5 w-3.5" />
+        Valid
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-semibold"
+      title={validationInfo.message ?? ""}
+    >
+      <XCircle className="h-3.5 w-3.5" />
+      Invalid
     </span>
   );
 }
@@ -69,16 +98,13 @@ const ReviewManagement = () => {
   const [submissionStatuses, setSubmissionStatuses] = useState({});
   const [activeTab, setActiveTab] = useState("reviewers");
 
-  // Due date editing — keyed by paperId
   const [editingDueDateFor, setEditingDueDateFor] = useState(null);
   const [dueDateInputs, setDueDateInputs] = useState({});
   const [savingDueDate, setSavingDueDate] = useState(false);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   useEffect(() => {
-    if (conferenceId) {
-      fetchData();
-    }
+    if (conferenceId) fetchData();
   }, [conferenceId]);
 
   const fetchData = async () => {
@@ -89,13 +115,8 @@ const ReviewManagement = () => {
       let papers = Array.isArray(data) ? data : [];
 
       papers = [...papers].sort((a, b) => {
-        const getDate = (paper) =>
-          paper.assignedAt ||
-          paper.latest_assigned_at ||
-          paper.assigned_at ||
-          paper.created_at ||
-          paper.submittedDate ||
-          null;
+        const getDate = (p) =>
+          p.assignedAt || p.latest_assigned_at || p.assigned_at || p.created_at || p.submittedDate || null;
         const dateA = getDate(a);
         const dateB = getDate(b);
         if (!dateA && !dateB) return 0;
@@ -129,18 +150,11 @@ const ReviewManagement = () => {
 
   const handleViewFullReviews = useCallback(
     (paperId, paperTitle, event) => {
-      if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      if (!paperId) {
-        toast.error("Cannot view reviews: Paper ID is missing");
-        return;
-      }
-      const url = `/userdashboard/reviews?paperId=${encodeURIComponent(
-        paperId
-      )}&conferenceId=${encodeURIComponent(conferenceId)}`;
-      navigate(url);
+      if (event) { event.preventDefault(); event.stopPropagation(); }
+      if (!paperId) { toast.error("Cannot view reviews: Paper ID is missing"); return; }
+      navigate(
+        `/userdashboard/reviews?paperId=${encodeURIComponent(paperId)}&conferenceId=${encodeURIComponent(conferenceId)}`
+      );
     },
     [conferenceId, navigate]
   );
@@ -164,22 +178,18 @@ const ReviewManagement = () => {
     }
   };
 
-
   const handleEditDueDate = (paperId, currentDueDateUTC) => {
-    // Convert UTC -> local datetime-local string for the input
     let localValue = "";
     if (currentDueDateUTC) {
       const d = new Date(currentDueDateUTC);
       const pad = (n) => String(n).padStart(2, "0");
-      localValue = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      localValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
     setDueDateInputs((prev) => ({ ...prev, [paperId]: localValue }));
     setEditingDueDateFor(paperId);
   };
 
-  const handleCancelEditDueDate = () => {
-    setEditingDueDateFor(null);
-  };
+  const handleCancelEditDueDate = () => setEditingDueDateFor(null);
 
   const handleSaveDueDate = async (paperId) => {
     const dueDate = dueDateInputs[paperId];
@@ -191,16 +201,25 @@ const ReviewManagement = () => {
       });
       toast.success("Due date updated successfully.");
       setEditingDueDateFor(null);
-      // Update local state so header pill refreshes immediately
       setTableData((prev) =>
         prev.map((p) =>
           p.paperId === paperId
-            ? { ...p, dueDate: dueDate ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString() : null,
-                reviewers: p.reviewers?.map((r) => ({ ...r, dueDate: dueDate ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString() : null })) }
+            ? {
+                ...p,
+                dueDate: dueDate
+                  ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString()
+                  : null,
+                reviewers: p.reviewers?.map((r) => ({
+                  ...r,
+                  dueDate: dueDate
+                    ? new Date(new Date(dueDate).toLocaleString("en-US", { timeZone: timezone })).toISOString()
+                    : null,
+                })),
+              }
             : p
         )
       );
-      await fetchData(); // re-fetch to get accurate UTC from backend
+      await fetchData();
     } catch (err) {
       console.error(err);
       toast.error("Failed to update due date.");
@@ -208,9 +227,8 @@ const ReviewManagement = () => {
       setSavingDueDate(false);
     }
   };
-  const toggleReviewer = (key) => {
-    setExpandedReviewer((prev) => (prev === key ? null : key));
-  };
+
+  const toggleReviewer = (key) => setExpandedReviewer((prev) => (prev === key ? null : key));
 
   const getStatusBadge = (status) => {
     if (status === "reviewed") return <Badge variant="success">Reviewed</Badge>;
@@ -228,8 +246,7 @@ const ReviewManagement = () => {
   const getDecisionBadge = (decision) => {
     if (decision === "Accepted") return <Badge variant="success">Accepted</Badge>;
     if (decision === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
-    if (decision === "Modification Required")
-      return <Badge variant="warning">Modification Required</Badge>;
+    if (decision === "Modification Required") return <Badge variant="warning">Modification Required</Badge>;
     if (decision === "Assigned") return <Badge variant="purple">Assigned</Badge>;
     return null;
   };
@@ -274,20 +291,16 @@ const ReviewManagement = () => {
     </Card>
   );
 
-  // ---------------------------------------------------------------------------
-  // Tab filters
-  // ---------------------------------------------------------------------------
+  // ── Tab filters ──
   const reviewerReviewedPapers = tableData.filter(
     (paper) => paper.reviewers && paper.reviewers.some((r) => r.status === "reviewed")
   );
-
   const organizerReviewedPapers = tableData.filter(
     (paper) =>
       paper.decision &&
       paper.decision !== "pending" &&
       (!paper.reviewers || paper.reviewers.length === 0)
   );
-
   const unreviewedPapers = tableData.filter((paper) => {
     const noDecision = !paper.decision || paper.decision === "pending";
     const noReviewerReviewed =
@@ -302,9 +315,7 @@ const ReviewManagement = () => {
     return noDecision && noReviewerReviewed && notOrganizerReviewed;
   });
 
-  // ---------------------------------------------------------------------------
-  // Paper card renderer
-  // ---------------------------------------------------------------------------
+  // ── Paper card renderer ──
   const renderPapersList = (papersList) => {
     if (papersList.length === 0) {
       return (
@@ -334,15 +345,14 @@ const ReviewManagement = () => {
         null;
 
       const plagiarismScore = paper.plagiarismScore ?? null;
-
-      // Paper-level due date — all reviewers share the same due date per README
       const paperDueDate = paper.dueDate ?? paper.reviewers?.[0]?.dueDate ?? null;
+
+      // Read validation_info — may be null for papers submitted before the validator was introduced
+      const validationInfo = paper.validationInfo ?? paper.validation_info ?? null;
 
       return (
         <Card key={currentPaperId} className="overflow-hidden">
-          {/* ----------------------------------------------------------------
-              Card header
-          ---------------------------------------------------------------- */}
+          {/* Card header */}
           <div className="bg-teal-700 dark:bg-teal-900 text-white px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm opacity-70">#{index + 1}</span>
@@ -358,7 +368,6 @@ const ReviewManagement = () => {
                   Reviewed by Editor
                 </span>
               )}
-              {/* ── Due date pill in header ── */}
               {paperDueDate && (
                 <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
                   getDueDateStatus(paperDueDate) === "overdue"
@@ -382,8 +391,7 @@ const ReviewManagement = () => {
               {status && (
                 <span className="flex items-center gap-1 opacity-80 text-xs">
                   <RefreshCw className="h-3 w-3" />
-                  {status.currentCount} / {status.unlimited ? "∞" : status.maxResubmissions}{" "}
-                  resubmissions
+                  {status.currentCount} / {status.unlimited ? "∞" : status.maxResubmissions} resubmissions
                 </span>
               )}
               <span className="opacity-80">
@@ -396,9 +404,7 @@ const ReviewManagement = () => {
           </div>
 
           <CardContent className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* --------------------------------------------------------------
-                Column 1 — Authors + Scores
-            -------------------------------------------------------------- */}
+            {/* Column 1 — Authors + Scores */}
             <div className="space-y-4">
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
@@ -425,11 +431,10 @@ const ReviewManagement = () => {
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">IEEE Compliance</span>
-                  <span className="font-semibold text-foreground">
-                    {paper.complianceScore != null ? `${paper.complianceScore}%` : "N/A"}
-                  </span>
+                {/* PDF Validation — replaces the old IEEE Compliance row */}
+                <div className="flex justify-between text-sm items-center">
+                  <span className="text-muted-foreground">PDF Validation</span>
+                  <ValidationBadge validationInfo={validationInfo} />
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Plagiarism Score</span>
@@ -463,9 +468,7 @@ const ReviewManagement = () => {
               )}
             </div>
 
-            {/* --------------------------------------------------------------
-                Column 2 — Organizer panel OR reviewer list
-            -------------------------------------------------------------- */}
+            {/* Column 2 — Organizer panel OR reviewer list */}
             <div className="lg:col-span-1">
               {wasReviewedByOrganizer ? (
                 <div className="space-y-3">
@@ -515,17 +518,13 @@ const ReviewManagement = () => {
                     Reviewers ({paper.reviewers?.length || 0})
                   </p>
                   {paper.reviewers?.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">
-                      No reviewers assigned yet.
-                    </p>
+                    <p className="text-sm text-muted-foreground italic">No reviewers assigned yet.</p>
                   ) : (
                     <div className="space-y-3">
                       {paper.reviewers?.map((reviewer, i) => {
                         const key        = `${currentPaperId}-${i}`;
                         const isExpanded = expandedReviewer === key;
-                        const hasComments =
-                          reviewer.commentsForAuthors || reviewer.commentsForOrganizers;
-                        // Per-reviewer due date (falls back to paper-level)
+                        const hasComments = reviewer.commentsForAuthors || reviewer.commentsForOrganizers;
                         const reviewerDueDate = reviewer.dueDate ?? paperDueDate;
                         const dueDateStatus   = getDueDateStatus(reviewerDueDate);
 
@@ -542,7 +541,6 @@ const ReviewManagement = () => {
                                 : "bg-muted/20"
                             }`}>
                               <div className="flex flex-col gap-1 flex-wrap">
-                                {/* Top row: name + status + recommendation */}
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-sm font-medium text-foreground">
                                     {reviewer.name}
@@ -550,7 +548,6 @@ const ReviewManagement = () => {
                                   {getStatusBadge(reviewer.status)}
                                   {getRecommendationBadge(reviewer.recommendation)}
                                 </div>
-                                {/* Due date pill below name */}
                                 <DueDatePill dueDateUTC={reviewerDueDate} />
                               </div>
                               {reviewer.status === "reviewed" && hasComments && (
@@ -560,24 +557,16 @@ const ReviewManagement = () => {
                                   onClick={() => toggleReviewer(key)}
                                   className="h-7 px-2 text-teal-600 dark:text-teal-400"
                                 >
-                                  {isExpanded ? (
-                                    <ChevronUp className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronDown className="h-4 w-4" />
-                                  )}
+                                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                 </Button>
                               )}
                             </div>
                             {isExpanded && reviewer.status === "reviewed" && (
                               <div className="px-3 py-3 space-y-3 border-t border-border bg-card">
                                 <div className="flex justify-between text-xs">
-                                  <span className="text-muted-foreground font-medium">
-                                    Technical Confidence
-                                  </span>
+                                  <span className="text-muted-foreground font-medium">Technical Confidence</span>
                                   <span className="font-semibold text-foreground">
-                                    {reviewer.technicalConfidence !== "0.00"
-                                      ? reviewer.technicalConfidence
-                                      : "N/A"}
+                                    {reviewer.technicalConfidence !== "0.00" ? reviewer.technicalConfidence : "N/A"}
                                   </span>
                                 </div>
                                 {reviewer.commentsForAuthors && (
@@ -619,11 +608,8 @@ const ReviewManagement = () => {
               )}
             </div>
 
-            {/* --------------------------------------------------------------
-                Column 3 — Due Date Editor + Final Decision
-            -------------------------------------------------------------- */}
+            {/* Column 3 — Due Date Editor + Final Decision */}
             <div>
-              {/* ── Edit Due Date ── */}
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
                 Review Due Date
               </p>
@@ -731,9 +717,6 @@ const ReviewManagement = () => {
     });
   };
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
   return (
     <Layout title="PaperDesk - Review Management">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
@@ -744,8 +727,7 @@ const ReviewManagement = () => {
                 <div>
                   <h1 className="text-2xl font-bold text-foreground mb-1">Review Management</h1>
                   <p className="text-muted-foreground text-sm">
-                    {conferenceName || "Conference"} — Track reviews and make decisions on submitted
-                    papers.
+                    {conferenceName || "Conference"} — Track reviews and make decisions on submitted papers.
                   </p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
@@ -758,12 +740,7 @@ const ReviewManagement = () => {
 
           <Card>
             <CardContent className="p-0">
-              <Tabs
-                defaultValue="reviewers"
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="w-full"
-              >
+              <Tabs defaultValue="reviewers" value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <div className="border-b border-border px-6 pt-4">
                   <TabsList className="bg-transparent">
                     <TabsTrigger
@@ -772,9 +749,7 @@ const ReviewManagement = () => {
                     >
                       <span className="flex items-center gap-2">
                         Reviewed by Reviewers
-                        <Badge variant="secondary" className="ml-1">
-                          {reviewerReviewedPapers.length}
-                        </Badge>
+                        <Badge variant="secondary" className="ml-1">{reviewerReviewedPapers.length}</Badge>
                       </span>
                     </TabsTrigger>
                     <TabsTrigger
@@ -783,9 +758,7 @@ const ReviewManagement = () => {
                     >
                       <span className="flex items-center gap-2">
                         Reviewed by Me
-                        <Badge variant="secondary" className="ml-1">
-                          {organizerReviewedPapers.length}
-                        </Badge>
+                        <Badge variant="secondary" className="ml-1">{organizerReviewedPapers.length}</Badge>
                       </span>
                     </TabsTrigger>
                     <TabsTrigger
@@ -794,9 +767,7 @@ const ReviewManagement = () => {
                     >
                       <span className="flex items-center gap-2">
                         Unreviewed
-                        <Badge variant="secondary" className="ml-1">
-                          {unreviewedPapers.length}
-                        </Badge>
+                        <Badge variant="secondary" className="ml-1">{unreviewedPapers.length}</Badge>
                       </span>
                     </TabsTrigger>
                   </TabsList>
@@ -809,7 +780,6 @@ const ReviewManagement = () => {
                     <div className="space-y-6 p-6">{renderPapersList(reviewerReviewedPapers)}</div>
                   )}
                 </TabsContent>
-
                 <TabsContent value="organizer" className="mt-0">
                   {loading ? (
                     <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>
@@ -817,7 +787,6 @@ const ReviewManagement = () => {
                     <div className="space-y-6 p-6">{renderPapersList(organizerReviewedPapers)}</div>
                   )}
                 </TabsContent>
-
                 <TabsContent value="unreviewed" className="mt-0">
                   {loading ? (
                     <div className="p-6 space-y-6">{[1, 2, 3].map((i) => <TableRowSkeleton key={i} />)}</div>

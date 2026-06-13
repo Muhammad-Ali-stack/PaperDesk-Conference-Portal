@@ -14,12 +14,11 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Users, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Users, AlertTriangle, ShieldCheck, CheckCircle, XCircle } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const getPaperStatusBadge = (status, hasReviews, decision) => {
-  // If a final decision has been given, always show that — never "Pending Review"
   if (decision && decision !== "pending") return getDecisionBadge(decision);
   if (status === "assigned" && !hasReviews) return <Badge variant="warning">Under Review</Badge>;
   if (hasReviews) return <Badge variant="success">Reviewed</Badge>;
@@ -48,6 +47,41 @@ const getPlagiarismLabel = (score) => {
   return "High Similarity";
 };
 
+// ─── PDF Validation Badge ─────────────────────────────────────────────────────
+
+const ValidationInfoBlock = ({ validationInfo }) => {
+  if (validationInfo === null || validationInfo === undefined) return null;
+
+  return (
+    <div
+      className={`inline-flex items-start gap-2 px-3 py-2 rounded-lg text-sm border ${
+        validationInfo.isValid
+          ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
+          : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
+      }`}
+    >
+      {validationInfo.isValid ? (
+        <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      ) : (
+        <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      )}
+      <div className="space-y-0.5">
+        <p className="font-semibold text-xs">
+          {validationInfo.isValid ? "PDF Valid" : "PDF Invalid"}
+        </p>
+        <p className="text-xs opacity-80">{validationInfo.message}</p>
+        {validationInfo.fileInfo && (
+          <p className="text-xs opacity-70">
+            {validationInfo.fileInfo.pages != null && `Pages: ${validationInfo.fileInfo.pages}`}
+            {validationInfo.fileInfo.pages != null && validationInfo.fileInfo.sizeMB != null && " · "}
+            {validationInfo.fileInfo.sizeMB != null && `Size: ${validationInfo.fileInfo.sizeMB} MB`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Skeletons ────────────────────────────────────────────────────────────────
 
 const PaperCardSkeleton = () => (
@@ -63,7 +97,6 @@ const PaperCardSkeleton = () => (
           <Skeleton className="h-6 w-32 rounded-full" />
         </div>
         <div className="flex gap-10 items-center flex-wrap">
-          <Skeleton className="h-24 w-24 rounded-full" />
           <Skeleton className="h-24 w-24 rounded-full" />
         </div>
       </div>
@@ -100,27 +133,22 @@ const ReviewDetails = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Main data
   const [papers, setPapers] = useState([]);
   const [reviewManagementData, setReviewManagementData] = useState([]);
 
-  // Selected paper state
   const [selectedPaperId, setSelectedPaperId] = useState(null);
   const [selectedPaper, setSelectedPaper] = useState(null);
   const [reviewMgmtPaper, setReviewMgmtPaper] = useState(null);
   const [reviews, setReviews] = useState([]);
 
-  // Loading & error states
   const [loadingPapers, setLoadingPapers] = useState(true);
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [error, setError] = useState(null);
 
-  // Ref to prevent auto‑selection after the initial load
   const autoSelectDone = useRef(false);
-  // Ref to cancel in‑flight requests when paper changes quickly
   const abortControllerRef = useRef(null);
 
-  // 1. Fetch papers and review management data ONCE when conferenceId changes
+  // 1. Fetch papers and review management data on mount
   useEffect(() => {
     if (!conferenceId) return;
 
@@ -154,22 +182,20 @@ const ReviewDetails = () => {
     fetchInitialData();
   }, [conferenceId]);
 
-  // 2. Sync selectedPaperId with URL query parameter (after papers are loaded)
+  // 2. Sync selectedPaperId with URL query parameter
   useEffect(() => {
-    if (loadingPapers) return; // Wait until papers are available
+    if (loadingPapers) return;
 
     const paperIdFromUrl = searchParams.get("paperId");
     if (paperIdFromUrl) {
-      // Ensure the paper exists in the current list
       const paperExists = papers.some(
         (p) => String(p.id || p._id) === paperIdFromUrl
       );
       if (paperExists && selectedPaperId !== paperIdFromUrl) {
         setSelectedPaperId(paperIdFromUrl);
-        autoSelectDone.current = true; // URL takes precedence, disable auto-select
+        autoSelectDone.current = true;
       }
     } else if (!selectedPaperId && papers.length > 0 && !autoSelectDone.current) {
-      // No paperId in URL → auto‑select first selectable paper
       const decidedIds = new Set(
         reviewManagementData
           .filter((p) => p.decision && p.decision !== "pending")
@@ -182,16 +208,14 @@ const ReviewDetails = () => {
       if (firstSelectable) {
         const newId = String(firstSelectable.id || firstSelectable._id);
         setSelectedPaperId(newId);
-        // Update URL to reflect the auto‑selected paper
         setSearchParams({ paperId: newId, conferenceId });
         autoSelectDone.current = true;
       }
     }
   }, [papers, reviewManagementData, loadingPapers, searchParams, selectedPaperId, conferenceId, setSearchParams]);
 
-  // 3. Fetch paper details and reviews whenever selectedPaperId changes
+  // 3. Fetch paper details and reviews when selectedPaperId changes
   useEffect(() => {
-    // Cancel any ongoing request when a new paper is selected
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -202,7 +226,6 @@ const ReviewDetails = () => {
       return;
     }
 
-    // Sync review-management entry immediately (no extra request needed)
     const mgmtEntry = reviewManagementData.find(
       (p) => String(p.paperId) === String(selectedPaperId)
     );
@@ -216,13 +239,11 @@ const ReviewDetails = () => {
       setError(null);
 
       try {
-        // Fetch paper details (authors, compliance, plagiarism)
         const paperRes = await axios.get(`/api/author/research-paper/${selectedPaperId}`, {
           signal: controller.signal,
         });
         setSelectedPaper(paperRes.data?.data ?? paperRes.data);
 
-        // Fetch reviewer submissions – failure means none exist yet (normal)
         try {
           const reviewsRes = await axios.get(`/api/organizer/reviews/${selectedPaperId}`, {
             signal: controller.signal,
@@ -235,7 +256,7 @@ const ReviewDetails = () => {
       } catch (err) {
         if (err.name !== "AbortError") {
           console.error("Error fetching paper details:", err);
-          setError(err.response?.data?.error || "Failed to load paper details.");
+          setError(err.response?.data?.error || "The Reviewers has not submitted their reviews yet.");
           setSelectedPaper(null);
           setReviews([]);
         }
@@ -249,7 +270,6 @@ const ReviewDetails = () => {
     fetchPaperAndReviews();
   }, [selectedPaperId, reviewManagementData]);
 
-  // Handlers
   const handlePaperSelect = (paperId) => {
     setSelectedPaperId(paperId);
     setSearchParams({ paperId, conferenceId });
@@ -269,13 +289,20 @@ const ReviewDetails = () => {
     reviewMgmtPaper?.comments_for_authors ??
     null;
 
+  // Read validation_info — prefer reviewMgmtPaper (already fetched) over selectedPaper
+  const validationInfo =
+    reviewMgmtPaper?.validationInfo ??
+    reviewMgmtPaper?.validation_info ??
+    selectedPaper?.validationInfo ??
+    selectedPaper?.validation_info ??
+    null;
+
   const decidedPaperIds = new Set(
     reviewManagementData
       .filter((p) => p.decision && p.decision !== "pending")
       .map((p) => String(p.paperId))
   );
 
-  // Render
   return (
     <Layout title="PaperDesk - Review Details">
       <div className="flex-1 p-6 lg:p-10 overflow-auto bg-background">
@@ -284,7 +311,7 @@ const ReviewDetails = () => {
             {conferenceName || "Conference"} – Review Details
           </h2>
 
-          {/* Paper selector – always visible */}
+          {/* Paper selector */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-foreground mb-2">
               Select Paper
@@ -317,7 +344,6 @@ const ReviewDetails = () => {
             )}
           </div>
 
-          {/* Right panel – only reloads when selectedPaperId changes */}
           {error && (
             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive mb-6">
               {error}
@@ -355,6 +381,8 @@ const ReviewDetails = () => {
                               .join(", ")
                           : "N/A"}
                       </p>
+
+                      {/* Plagiarism Score */}
                       <div className="mt-4">
                         <span className="text-sm font-medium text-muted-foreground">
                           Plagiarism Score:{" "}
@@ -376,18 +404,24 @@ const ReviewDetails = () => {
                           </span>
                         )}
                       </div>
+
+                      {/* PDF Validation — replaces the IEEE Compliance DonutChart */}
+                      <div className="mt-4">
+                        <span className="text-sm font-medium text-muted-foreground block mb-2">
+                          PDF Validation:
+                        </span>
+                        <ValidationInfoBlock validationInfo={validationInfo} />
+                        {validationInfo === null && (
+                          <span className="text-sm text-muted-foreground italic">
+                            No validation data available.
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex gap-10 items-center flex-wrap">
-                      {selectedPaper.compliance_report && (
-                        <DonutChart
-                          value={Number(
-                            selectedPaper.compliance_report?.percentage || 0
-                          ).toFixed(2)}
-                          label="IEEE Compliance"
-                          color="#10b981"
-                        />
-                      )}
-                      {hasOrganizerScore && (
+
+                    {/* Only the plagiarism DonutChart remains */}
+                    {hasOrganizerScore && (
+                      <div className="flex gap-10 items-center flex-wrap">
                         <DonutChart
                           value={Number(organizerPlagiarismScore).toFixed(2)}
                           label="Plagiarism"
@@ -399,17 +433,15 @@ const ReviewDetails = () => {
                               : "#ef4444"
                           }
                         />
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
               {/* Review Section */}
               <div>
-                <h2 className="text-xl font-bold mb-4 text-foreground">
-                  Review Details
-                </h2>
+                <h2 className="text-xl font-bold mb-4 text-foreground">Review Details</h2>
 
                 {wasReviewedByOrganizer ? (
                   <Card className="border-teal-200 dark:border-teal-800">
@@ -421,9 +453,7 @@ const ReviewDetails = () => {
                     </div>
                     <CardContent className="p-5 space-y-4">
                       <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          Decision:
-                        </span>
+                        <span className="text-sm font-medium text-muted-foreground">Decision:</span>
                         {getDecisionBadge(decision)}
                       </div>
                       <div>
@@ -481,9 +511,7 @@ const ReviewDetails = () => {
                                   ["Relevance", review.relevance],
                                 ].map(([label, val]) => (
                                   <div key={label}>
-                                    <span className="font-medium text-muted-foreground">
-                                      {label}:
-                                    </span>
+                                    <span className="font-medium text-muted-foreground">{label}:</span>
                                     <p className="text-foreground">{val ?? "N/A"}</p>
                                   </div>
                                 ))}
@@ -492,9 +520,7 @@ const ReviewDetails = () => {
                                 <span className="font-medium text-muted-foreground">
                                   Overall Recommendation:
                                 </span>
-                                <Badge variant="outline">
-                                  {review.overall_recommendation}
-                                </Badge>
+                                <Badge variant="outline">{review.overall_recommendation}</Badge>
                               </div>
                               <div className="mt-2">
                                 <span className="font-medium text-muted-foreground">

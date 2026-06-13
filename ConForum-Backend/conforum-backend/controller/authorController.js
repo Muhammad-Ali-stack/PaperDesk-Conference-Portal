@@ -1,59 +1,17 @@
 import supabase from "../config/supabase.js";
 import { sendMail } from "../config/mailer.js";
-import axios from "axios";
-import FormData from "form-data";
-import PQueue from "p-queue";
+import { validatePdf } from "../utils_helpers/simplePdfValidator.js";
 
-// Limits concurrent IEEE compliance API calls to 3 per worker.
-const complianceQueue = new PQueue({ concurrency: 3 });
-
-// Constructs the Supabase public URL for a given storage path.
+/**
+ * Helper to construct a public Supabase storage URL
+ */
 const getSupabasePublicUrl = (bucket, filePath) => {
   return `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 };
 
-/**
- * Accepts a PDF file upload and forwards it to the Flask IEEE compliance
- * service, returning a structured compliance report.
- * Accepts optional conference_mode in the request body.
- */
-export const checkComplianceController = async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "PDF file is required." });
-    }
-
-    if (req.file.mimetype !== "application/pdf") {
-      return res.status(400).json({ success: false, message: "Invalid file type. Only PDF files are allowed." });
-    }
-
-    const conferenceMode = req.body.conference_mode || "";
-    const complianceReport = await callFlaskChecker(req.file.buffer, req.file.originalname, conferenceMode);
-
-    return res.status(200).json({
-      success: true,
-      message: "Compliance check completed.",
-      data: { complianceReport },
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Error performing compliance check.",
-      data: { error: error.message },
-    });
-  }
-};
-
-/**
- * Handles a new paper submission.
- *
- * 1. Validates request fields and file.
- * 2. Uploads the PDF to Supabase storage.
- * 3. Creates Author records and a research_papers row.
- * 4. Assigns the author role on the conference.
- * 5. Runs IEEE compliance checker asynchronously (non-blocking).
- * 6. Sends confirmation emails (fire-and-forget).
- */
+// ==============================
+// 1. submitPaperController
+// ==============================
 export const submitPaperController = async (req, res) => {
   try {
     const {
@@ -67,8 +25,12 @@ export const submitPaperController = async (req, res) => {
     } = req.body;
     let { authors } = req.body;
 
-    if (!userId) return res.status(400).json({ success: false, message: "User ID is required." });
-    if (!conferenceId) return res.status(400).json({ success: false, message: "Conference ID is required." });
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required." });
+    }
+    if (!conferenceId) {
+      return res.status(400).json({ success: false, message: "Conference ID is required." });
+    }
     if (!title || !abstract || !keywords || !conferenceAcronym) {
       return res.status(400).json({ success: false, message: "All paper details are required." });
     }
@@ -87,9 +49,9 @@ export const submitPaperController = async (req, res) => {
       .eq("id", conferenceId)
       .maybeSingle();
 
-    if (!conference) return res.status(404).json({ success: false, message: "Conference not found." });
-
-    const conferenceMode = conference.mode || "";
+    if (!conference) {
+      return res.status(404).json({ success: false, message: "Conference not found." });
+    }
 
     const { data: existingPaper } = await supabase
       .from("research_papers")
@@ -105,13 +67,24 @@ export const submitPaperController = async (req, res) => {
       });
     }
 
-    if (!req.file) return res.status(400).json({ success: false, message: "File upload is required." });
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "File upload is required." });
+    }
     if (req.file.mimetype !== "application/pdf") {
       return res.status(400).json({ success: false, message: "Invalid file type. Only PDF files are allowed." });
     }
 
+    const pdfValidation = await validatePdf(req.file.buffer, req.file.originalname);
+    if (!pdfValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: pdfValidation.message,
+        data: { validation: pdfValidation },
+      });
+    }
+
     const fileName = `${Date.now()}_${req.file.originalname}`;
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from("paper-submissions")
       .upload(fileName, req.file.buffer, {
         cacheControl: "3600",
@@ -120,10 +93,13 @@ export const submitPaperController = async (req, res) => {
       });
 
     if (uploadError) {
-      return res.status(500).json({ success: false, message: `Supabase upload error: ${uploadError.message}` });
+      return res.status(500).json({ 
+        success: false, 
+        message: `Supabase upload error: ${uploadError.message}` 
+      });
     }
 
-    const filePath = getSupabasePublicUrl("paper-submissions", uploadData.path);
+    const filePath = getSupabasePublicUrl("paper-submissions", fileName);
 
     if (!authors || !Array.isArray(authors) || !authors.length) {
       return res.status(400).json({ success: false, message: "At least one author is required." });
@@ -148,16 +124,12 @@ export const submitPaperController = async (req, res) => {
       ? keywords.split(",").map((kw) => kw.trim())
       : keywords;
 
-    const complianceReport = {
-      percentage: 0,
-      details: [
-        {
-          rule: "Pending",
-          passed: false,
-          message: "Compliance check is running.",
-          suggestion: "Please wait a few seconds for the compliance check to complete.",
-        },
-      ],
+    const validationInfo = {
+      validated: true,
+      timestamp: new Date().toISOString(),
+      message: "PDF passed basic validation checks.",
+      fileInfo: pdfValidation.fileInfo,
+      note: "IEEE compliance will be reviewed manually by conference organizers.",
     };
 
     const { data: paper, error: paperError } = await supabase
@@ -170,18 +142,21 @@ export const submitPaperController = async (req, res) => {
         conference_id: conferenceId,
         conference_name: conferenceName,
         conference_acronym: conferenceAcronym,
-        compliance_report: complianceReport,
+        validation_info: validationInfo,
       })
       .select()
       .single();
 
     if (paperError) {
-      return res.status(500).json({ success: false, message: "Error saving paper.", data: { error: paperError.message } });
+      return res.status(500).json({ 
+        success: false, 
+        message: "Error saving paper.", 
+        data: { error: paperError.message } 
+      });
     }
 
-    // Bulk fetch existing authors by email to avoid N+1 queries
     const authorEmails = authors.map(a => a.email).filter(Boolean);
-    const { data: existingAuthors, error: fetchAuthorsError } = await supabase
+    const { data: existingAuthors } = await supabase
       .from("authors")
       .select("id, email")
       .in("email", authorEmails);
@@ -196,8 +171,8 @@ export const submitPaperController = async (req, res) => {
     const authorIds = [];
     for (const authorData of authors) {
       let authorId = existingAuthorMap.get(authorData.email);
+      
       if (!authorId) {
-        // Insert new author
         const { data: newAuthor, error: insertError } = await supabase
           .from("authors")
           .insert({
@@ -219,18 +194,21 @@ export const submitPaperController = async (req, res) => {
         }
         authorId = newAuthor.id;
       }
-      if (authorId) authorIds.push(authorId);
+      if (authorId) {
+        authorIds.push(authorId);
+      }
     }
 
     const validAuthorIds = authorIds.filter(Boolean);
     if (validAuthorIds.length > 0) {
       await supabase
         .from("paper_authors")
-        .insert(validAuthorIds.map((authorId) => ({ paper_id: paper.id, author_id: authorId })));
+        .insert(validAuthorIds.map((authorId) => ({ 
+          paper_id: paper.id, 
+          author_id: authorId 
+        })));
     }
 
-    // Send submission confirmation to all listed author emails.
-    // This is fire-and-forget — failures do not block the response.
     const authorEmailsList = authors.map((a) => a.email).filter(Boolean);
     if (authorEmailsList.length > 0) {
       const submissionEmailHtml = `
@@ -245,8 +223,8 @@ export const submitPaperController = async (req, res) => {
                   <td style="background-color:#4B707A;padding:32px 40px;text-align:center;">
                     <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">PaperDesk</h1>
                     <p style="margin:6px 0 0;color:#d1e8eb;font-size:13px;">Conference Management System</p>
-                  </td>
-                </tr>
+                   </td>
+                 </tr>
                 <tr>
                   <td style="padding:40px 40px 32px;">
                     <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:22px;font-weight:700;">Paper Submitted Successfully</h2>
@@ -258,20 +236,20 @@ export const submitPaperController = async (req, res) => {
                       <p style="margin:0;font-size:14px;color:#374151;"><strong>Status:</strong> Pending Review</p>
                     </div>
                     <p style="margin:0;font-size:13px;color:#9ca3af;">You will receive further updates as your paper progresses through the review process.</p>
-                  </td>
-                </tr>
+                   </td>
+                 </tr>
                 <tr>
                   <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
-                    <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System</p>
-                  </td>
-                </tr>
-              </table>
-            </td></tr>
-          </table>
+                    <p style="margin:0;font-size:12px;color:#9ca3af;">Copyright ${new Date().getFullYear()} PaperDesk - Conference Management System</p>
+                   </td>
+                 </tr>
+               </table>
+             </td>
+           </tr>
+         </table>
         </body>
         </html>
       `;
-
       Promise.all(
         authorEmailsList.map((email) =>
           sendMail({
@@ -281,195 +259,27 @@ export const submitPaperController = async (req, res) => {
             html: submissionEmailHtml,
           })
         )
-      ).catch(() => {});
+      ).catch((err) => console.error("Error sending confirmation emails:", err));
     }
-
-    // Run the IEEE compliance check asynchronously so the response is not blocked.
-    // conference mode is forwarded so the Flask service can apply double-blind anonymity rules.
-    callFlaskChecker(req.file.buffer, req.file.originalname, conferenceMode)
-      .then((report) =>
-        supabase.from("research_papers").update({ compliance_report: report }).eq("id", paper.id)
-      )
-      .catch((err) =>
-        supabase
-          .from("research_papers")
-          .update({
-            compliance_report: {
-              percentage: 0,
-              details: [{ rule: "IEEE Checker", passed: false, message: err.message }],
-            },
-          })
-          .eq("id", paper.id)
-      );
 
     return res.status(201).json({
       success: true,
       message: "Paper submitted successfully.",
-      data: { paper, complianceReport },
+      data: { paper, validation: validationInfo },
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error submitting paper.", data: { error: error.message } });
+    console.error("submitPaperController error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error submitting paper.", 
+      data: { error: error.message } 
+    });
   }
 };
 
-/**
- * Sends the PDF buffer to the Flask IEEE compliance service via HTTP.
- * Passes conference_mode so the service can apply mode-specific checks.
- */
-const callFlaskChecker = (pdfBuffer, originalName = "paper.pdf", conferenceMode = "") => {
-  return complianceQueue.add(async () => {
-    const baseUrl = process.env.IEEE_CHECKER_URL || "http://localhost:6000";
-
-    const form = new FormData();
-    form.append("file", pdfBuffer, {
-      filename: originalName || "paper.pdf",
-      contentType: "application/pdf",
-    });
-
-    form.append("conference_mode", conferenceMode || "");
-
-    const response = await axios.post(`${baseUrl}/check-compliance`, form, {
-      headers: form.getHeaders(),
-      maxBodyLength: Infinity,
-      timeout: 60000,
-    });
-
-    return response.data;
-  });
-};
-
-/**
- * Returns a single research paper by ID with authors and conference populated.
- */
-export const getResearchPaperByIdController = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { data: paper, error } = await supabase
-      .from("research_papers")
-      .select("*, paper_authors(authors(first_name, last_name, email)), conferences!conference_id(conference_name, acronym)")
-      .eq("id", id)
-      .maybeSingle();
-
-    if (error || !paper) {
-      return res.status(404).json({ success: false, message: "Research paper not found." });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Research paper fetched successfully.",
-      data: paper,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Error fetching research paper.", data: { error: error.message } });
-  }
-};
-
-/**
- * Returns all research papers in the system with authors populated.
- */
-export const getAllResearchPapersController = async (req, res) => {
-  try {
-    const { data: papers, error } = await supabase
-      .from("research_papers")
-      .select("*, paper_authors(authors(*))");
-
-    if (error || !papers || papers.length === 0) {
-      return res.status(404).json({ success: false, message: "No research papers found." });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Research papers fetched successfully.",
-      data: papers,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Error retrieving research papers.", data: { error: error.message } });
-  }
-};
-
-/**
- * Returns all papers submitted by a specific user to a specific conference.
- * Includes all reviewer comments so the author can see complete feedback.
- */
-export const getUserConferencePapersController = async (req, res) => {
-  try {
-    const { userId, conferenceId } = req.params;
-
-    if (!userId || !conferenceId) {
-      return res.status(400).json({ success: false, message: "User ID and Conference ID are required." });
-    }
-
-    // After (fixed):
-const { data: authorRecords } = await supabase
-  .from("authors")
-  .select("id")
-  .eq("user_id", userId);
-
-if (!authorRecords || authorRecords.length === 0) {
-  return res.status(404).json({ success: false, message: "Author record not found for the user." });
-}
-
-const authorIds = authorRecords.map(a => a.id);
-
-const { data: paperAuthors } = await supabase
-  .from("paper_authors")
-  .select("paper_id")
-  .in("author_id", authorIds);  // ← .in() instead of .eq()
-    if (!paperAuthors || paperAuthors.length === 0) {
-      return res.status(404).json({ success: false, message: "No papers found for the user in this conference." });
-    }
-
-    const paperIds = paperAuthors.map((pa) => pa.paper_id);
-
-    const { data: papers, error } = await supabase
-      .from("research_papers")
-      .select(`
-        *,
-        paper_authors(
-          authors(first_name, last_name, email, country, affiliation, corresponding_author)
-        ),
-        reviews(
-          id,
-          reviewer_id,
-          overall_recommendation,
-          technical_confidence,
-          comments_for_authors,
-          originality,
-          technical_quality,
-          significance,
-          clarity,
-          relevance,
-          users!reviewer_id(name, email)
-        )
-      `)
-      .in("id", paperIds)
-      .eq("conference_id", conferenceId);
-
-    if (error || !papers || papers.length === 0) {
-      return res.status(404).json({ success: false, message: "No papers found for the user in this conference." });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Papers fetched successfully.",
-      data: { papers },
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "An error occurred while fetching papers.", data: { error: error.message } });
-  }
-};
-
-/**
- * Updates an existing paper's metadata and optionally replaces the PDF file.
- * If isResubmit is true:
- *   - Paper status is reset to "resubmitted" and final decision is cleared.
- *   - All existing assignments for the paper are deleted so the organizer
- *     can reassign fresh.
- *   - All existing reviews for the paper are deleted so that when the
- *     organizer reassigns (same or different reviewer), the paper appears
- *     as a new pending task in the reviewer's portal — not pre-marked as
- *     "Reviewed/Completed" from the old review round.
- */
+// ==============================
+// 2. updatePaperController
+// ==============================
 export const updatePaperController = async (req, res) => {
   try {
     const paperId = req.params.id;
@@ -517,16 +327,11 @@ export const updatePaperController = async (req, res) => {
       updates.final_decision = "pending";
       updates.organizer_plagiarism_score = null;
       updates.resubmission_count = (existingPaper.resubmission_count ?? 0) + 1;
-      updates.compliance_report = {
-        percentage: 0,
-        details: [
-          {
-            rule: "Pending",
-            passed: false,
-            message: "Compliance check is running.",
-            suggestion: "Please wait a few seconds for the compliance check to complete.",
-          },
-        ],
+      updates.validation_info = {
+        validated: true,
+        timestamp: new Date().toISOString(),
+        message: "PDF passed basic validation checks on resubmission.",
+        note: "IEEE compliance will be reviewed manually by conference organizers.",
       };
     }
 
@@ -536,7 +341,19 @@ export const updatePaperController = async (req, res) => {
 
     if (file) {
       if (file.mimetype !== "application/pdf") {
-        return res.status(400).json({ success: false, message: "Invalid file type. Only PDF files are allowed." });
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid file type. Only PDF files are allowed." 
+        });
+      }
+
+      const pdfValidation = await validatePdf(file.buffer, file.originalname);
+      if (!pdfValidation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: pdfValidation.message,
+          data: { validation: pdfValidation },
+        });
       }
 
       if (existingPaper.paper_file_path) {
@@ -545,7 +362,7 @@ export const updatePaperController = async (req, res) => {
       }
 
       const fileName = `${Date.now()}_${file.originalname}`;
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("paper-submissions")
         .upload(fileName, file.buffer, {
           cacheControl: "3600",
@@ -554,10 +371,23 @@ export const updatePaperController = async (req, res) => {
         });
 
       if (uploadError) {
-        return res.status(500).json({ success: false, message: `Supabase upload error: ${uploadError.message}` });
+        return res.status(500).json({ 
+          success: false, 
+          message: `Supabase upload error: ${uploadError.message}` 
+        });
       }
 
       updates.paper_file_path = getSupabasePublicUrl("paper-submissions", fileName);
+      
+      if (isResubmit === true || isResubmit === "true") {
+        updates.validation_info = {
+          validated: true,
+          timestamp: new Date().toISOString(),
+          message: "PDF passed basic validation checks on resubmission.",
+          fileInfo: pdfValidation.fileInfo,
+          note: "IEEE compliance will be reviewed manually by conference organizers.",
+        };
+      }
     }
 
     if (Object.keys(updates).length === 0) {
@@ -576,43 +406,8 @@ export const updatePaperController = async (req, res) => {
     }
 
     if (isResubmit === true || isResubmit === "true") {
-      // Reviews must be deleted before assignments.
-      // If old reviews survive a resubmission cycle, the reviewer portal
-      // still shows the paper as "Reviewed / Completed" after reassignment
-      // because the reviewer lookup joins the reviews table to determine status.
       await supabase.from("reviews").delete().eq("paper_id", paperId);
-
-      // Delete assignments so the organizer starts with a clean slate for reassignment.
       await supabase.from("assignments").delete().eq("paper_id", paperId);
-
-      let conferenceMode = "";
-      if (existingPaper.conference_id) {
-        const { data: conf } = await supabase
-          .from("conferences")
-          .select("mode")
-          .eq("id", existingPaper.conference_id)
-          .maybeSingle();
-        conferenceMode = conf?.mode || "";
-      }
-
-      const pdfBuffer = file ? file.buffer : null;
-      if (pdfBuffer) {
-        callFlaskChecker(pdfBuffer, file.originalname, conferenceMode)
-          .then((report) =>
-            supabase.from("research_papers").update({ compliance_report: report }).eq("id", paperId)
-          )
-          .catch((err) =>
-            supabase
-              .from("research_papers")
-              .update({
-                compliance_report: {
-                  percentage: 0,
-                  details: [{ rule: "IEEE Checker", passed: false, message: err.message }],
-                },
-              })
-              .eq("id", paperId)
-          );
-      }
     }
 
     return res.status(200).json({
@@ -621,13 +416,18 @@ export const updatePaperController = async (req, res) => {
       data: { paper: updatedPaper },
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error updating paper.", data: { error: error.message } });
+    console.error("updatePaperController error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error updating paper.", 
+      data: { error: error.message } 
+    });
   }
 };
 
-/**
- * Returns all conferences where the user has the 'author' role.
- */
+// ==============================
+// 3. getAuthorConferencesController
+// ==============================
 export const getAuthorConferencesController = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -643,7 +443,11 @@ export const getAuthorConferencesController = async (req, res) => {
       .eq("role", "author");
 
     if (error) {
-      return res.status(500).json({ success: false, message: "Error fetching conferences.", data: { error: error.message } });
+      return res.status(500).json({ 
+        success: false, 
+        message: "Error fetching conferences.", 
+        data: { error: error.message } 
+      });
     }
 
     const conferences = (data || [])
@@ -656,24 +460,29 @@ export const getAuthorConferencesController = async (req, res) => {
       data: { conferences },
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error fetching conferences.", data: { error: error.message } });
+    console.error("getAuthorConferencesController error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error fetching conferences.", 
+      data: { error: error.message } 
+    });
   }
 };
 
-/**
- * Returns the resubmission status for a specific paper.
- * Used by the author dashboard to show how many resubmissions remain.
- * GET /api/v1/conference/:conferenceId/papers/:paperId/submission-status
- */
+// ==============================
+// 4. getSubmissionStatusController
+// ==============================
 export const getSubmissionStatusController = async (req, res) => {
   try {
     const { conferenceId, paperId } = req.params;
 
     if (!conferenceId || !paperId) {
-      return res.status(400).json({ success: false, message: "Conference ID and Paper ID are required." });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Conference ID and Paper ID are required." 
+      });
     }
 
-    // Fetch the conference's resubmission limit
     const { data: conference, error: confError } = await supabase
       .from("conferences")
       .select("max_resubmissions")
@@ -684,7 +493,6 @@ export const getSubmissionStatusController = async (req, res) => {
       return res.status(404).json({ success: false, message: "Conference not found." });
     }
 
-    // Fetch the paper's current resubmission count
     const { data: paper, error: paperError } = await supabase
       .from("research_papers")
       .select("resubmission_count")
@@ -696,10 +504,9 @@ export const getSubmissionStatusController = async (req, res) => {
       return res.status(404).json({ success: false, message: "Paper not found." });
     }
 
-    const maxResubmissions = conference.max_resubmissions; // null = unlimited
+    const maxResubmissions = conference.max_resubmissions;
     const currentCount = paper.resubmission_count ?? 0;
 
-    // null means the organizer set no limit — treat as unlimited
     if (maxResubmissions === null || maxResubmissions === undefined) {
       return res.status(200).json({
         success: true,
@@ -724,6 +531,7 @@ export const getSubmissionStatusController = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("getSubmissionStatusController error:", error);
     return res.status(500).json({
       success: false,
       message: "Error fetching submission status.",
@@ -732,10 +540,9 @@ export const getSubmissionStatusController = async (req, res) => {
   }
 };
 
-/**
- * Deletes a paper and its associated file from Supabase storage.
- * Also deletes orphaned author records if they have no other papers.
- */
+// ==============================
+// 5. deletePaperController
+// ==============================
 export const deletePaperController = async (req, res) => {
   try {
     const { id, conferenceId } = req.params;
@@ -755,12 +562,10 @@ export const deletePaperController = async (req, res) => {
       await supabase.storage.from("paper-submissions").remove([fileName]);
     }
 
-    // For each author linked to this paper, check if they have any other papers
     for (const pa of paper.paper_authors || []) {
       const authorUserId = pa.authors?.user_id;
       const authorId = pa.author_id;
 
-      // Check other papers for this author
       const { data: otherPapers } = await supabase
         .from("paper_authors")
         .select("paper_id")
@@ -768,10 +573,8 @@ export const deletePaperController = async (req, res) => {
         .neq("paper_id", id);
 
       if (!otherPapers || otherPapers.length === 0) {
-        // No other papers: delete the author record from authors table
         await supabase.from("authors").delete().eq("id", authorId);
         
-        // Also remove the user_conference_roles for this author user if exists
         if (authorUserId) {
           await supabase
             .from("user_conference_roles")
@@ -780,29 +583,9 @@ export const deletePaperController = async (req, res) => {
             .eq("conference_id", conferenceId)
             .eq("role", "author");
         }
-      } else {
-        // Author has other papers: only remove the user_conference_roles if that user has no other author roles in this conference
-        if (authorUserId) {
-          // Check if this user has any other author records in this conference via other papers
-          const { data: otherAuthorsForUser } = await supabase
-            .from("paper_authors")
-            .select("author_id")
-            .eq("author_id", authorId)
-            .neq("paper_id", id);
-          
-          if (!otherAuthorsForUser || otherAuthorsForUser.length === 0) {
-            await supabase
-              .from("user_conference_roles")
-              .delete()
-              .eq("user_id", authorUserId)
-              .eq("conference_id", conferenceId)
-              .eq("role", "author");
-          }
-        }
       }
     }
 
-    // Delete the paper (cascade should remove paper_authors entries)
     await supabase.from("research_papers").delete().eq("id", id);
 
     return res.status(200).json({
@@ -810,6 +593,171 @@ export const deletePaperController = async (req, res) => {
       message: "Paper and associated data deleted successfully.",
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error deleting paper.", data: { error: error.message } });
+    console.error("deletePaperController error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error deleting paper.", 
+      data: { error: error.message } 
+    });
+  }
+};
+
+// ==============================
+// 6. getAllResearchPapersController
+// ==============================
+export const getAllResearchPapersController = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
+
+    const { data: papers, error } = await supabase
+      .from("paper_authors")
+      .select(`
+        paper_id,
+        research_papers!inner (
+          id,
+          title,
+          abstract,
+          keywords,
+          paper_file_path,
+          status,
+          final_decision,
+          created_at,
+          conference_id,
+          conference_name,
+          conference_acronym,
+          validation_info,
+          resubmission_count,
+          reviews (comments_for_authors, technical_confidence),
+          organizer_comments_for_authors
+        )
+      `)
+      .eq("authors.user_id", userId);
+
+    if (error) {
+      return res.status(500).json({ success: false, message: "Error fetching papers.", error: error.message });
+    }
+
+    const transformedPapers = papers?.map(item => item.research_papers).filter(Boolean) || [];
+
+    return res.status(200).json({
+      success: true,
+      message: "Papers retrieved successfully.",
+      data: { papers: transformedPapers },
+    });
+  } catch (error) {
+    console.error("getAllResearchPapersController error:", error);
+    return res.status(500).json({ success: false, message: "Server error.", error: error.message });
+  }
+};
+
+// ==============================
+// 7. getResearchPaperByIdController
+// ==============================
+export const getResearchPaperByIdController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id || req.user?._id;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Paper ID is required." });
+    }
+
+    const { data: paper, error } = await supabase
+      .from("research_papers")
+      .select(`
+        *,
+        reviews (id, comments_for_authors, technical_confidence, recommendation),
+        paper_authors (
+          author_id,
+          authors (id, first_name, last_name, email, corresponding_author, affiliation, user_id)
+        )
+      `)
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error || !paper) {
+      return res.status(404).json({ success: false, message: "Paper not found." });
+    }
+
+    const isAuthor = paper.paper_authors?.some(pa => pa.authors?.user_id === userId);
+    if (!isAuthor) {
+      return res.status(403).json({ success: false, message: "You are not an author of this paper." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Paper retrieved successfully.",
+      data: { paper },
+    });
+  } catch (error) {
+    console.error("getResearchPaperByIdController error:", error);
+    return res.status(500).json({ success: false, message: "Server error.", error: error.message });
+  }
+};
+
+// ==============================
+// 8. getUserConferencePapersController
+// ==============================
+export const getUserConferencePapersController = async (req, res) => {
+  try {
+    const { userId, conferenceId } = req.params;
+
+    if (!userId || !conferenceId) {
+      return res.status(400).json({ success: false, message: "User ID and Conference ID are required." });
+    }
+
+    const { data: roleCheck } = await supabase
+      .from("user_conference_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("conference_id", conferenceId)
+      .eq("role", "author")
+      .maybeSingle();
+
+    if (!roleCheck) {
+      return res.status(403).json({ success: false, message: "You are not registered as an author for this conference." });
+    }
+
+    const { data: papers, error } = await supabase
+      .from("paper_authors")
+      .select(`
+        research_papers!inner (
+          id,
+          title,
+          abstract,
+          keywords,
+          paper_file_path,
+          status,
+          final_decision,
+          created_at,
+          conference_id,
+          conference_name,
+          conference_acronym,
+          validation_info,
+          resubmission_count,
+          reviews (comments_for_authors, technical_confidence),
+          organizer_comments_for_authors
+        )
+      `)
+      .eq("authors.user_id", userId)
+      .eq("research_papers.conference_id", conferenceId);
+
+    if (error) {
+      return res.status(500).json({ success: false, message: "Error fetching papers.", error: error.message });
+    }
+
+    const transformedPapers = papers?.map(item => item.research_papers).filter(Boolean) || [];
+
+    return res.status(200).json({
+      success: true,
+      message: "Papers fetched successfully.",
+      data: { papers: transformedPapers },
+    });
+  } catch (error) {
+    console.error("getUserConferencePapersController error:", error);
+    return res.status(500).json({ success: false, message: "Server error.", error: error.message });
   }
 };

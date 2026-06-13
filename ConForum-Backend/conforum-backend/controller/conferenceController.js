@@ -3,17 +3,18 @@ import supabase from "../config/supabase.js";
 import { sendMail } from "../config/mailer.js";
 
 /**
- * Sends an organizer invitation email and persists the invitation record.
- * Only admins may call this endpoint.
- * Email delivery failures are logged but do NOT prevent the invitation
- * record from being saved — the admin can share the link manually if needed.
- *
- * @route POST /api/conference/send-invite
- * @param {string} req.body.organizerEmail - Email address to invite.
- * @param {string} [req.body.message]      - Optional personal message from the admin.
- * @returns {200} Invitation created — { emailSent: boolean }.
- * @returns {400} Organizer email is missing.
- * @returns {500} Server error.
+ * Sends an organizer invitation email and creates invitation record.
+ * Only administrators can call this endpoint.
+ * 
+ * Email delivery failures are logged but do not prevent the invitation
+ * record from being saved. Admins can share the link manually if needed.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.body.organizerEmail - Email address to invite
+ * @param {string} [req.body.message] - Optional personal message from admin
+ * @returns {200} Invitation created with emailSent status
+ * @returns {400} Missing organizer email
+ * @returns {500} Server error
  */
 export const sendOrganizerInviteController = async (req, res) => {
   try {
@@ -23,8 +24,10 @@ export const sendOrganizerInviteController = async (req, res) => {
       return res.status(400).json({ message: "Editor email is required." });
     }
 
+    // Generate unique invitation token
     const inviteToken = crypto.randomUUID();
 
+    // Create invitation record in database
     await supabase.from("invitations").insert({
       email: organizerEmail,
       conference_id: null,
@@ -33,8 +36,10 @@ export const sendOrganizerInviteController = async (req, res) => {
       token: inviteToken,
     });
 
+    // Construct invitation link with token
     const inviteLink = `${process.env.ORGANIZER_INVITE_URL}/register?role=organizer&token=${inviteToken}`;
 
+    // Build HTML email content
     const emailHtml = `
       <!DOCTYPE html>
 <html lang="en">
@@ -81,8 +86,8 @@ export const sendOrganizerInviteController = async (req, res) => {
                 </tr>
               </table>
               <p style="margin:0; font-size:12px; color:#9ca3af; line-height:1.6;">
-                If you did not expect this invitation, you can safely ignore this email.<br/>
-                Alternatively, copy and paste this link:<br/>
+                If you did not expect this invitation, you can safely ignore this email.
+                Alternatively, copy and paste this link:
                 <span style="color:#4B707A; word-break:break-all;">${inviteLink}</span>
               </p>
             </td>
@@ -90,7 +95,7 @@ export const sendOrganizerInviteController = async (req, res) => {
           <tr>
             <td style="background-color:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
               <p style="margin:0; font-size:12px; color:#9ca3af;">
-                &copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System<br/>
+                Copyright ${new Date().getFullYear()} PaperDesk - Conference Management System
                 This email was sent to <strong>${organizerEmail}</strong>
               </p>
             </td>
@@ -103,10 +108,11 @@ export const sendOrganizerInviteController = async (req, res) => {
 </html>
     `;
 
+    // Send invitation email
     const { sent } = await sendMail({
       type: "admin",
       to: organizerEmail,
-      subject: `Editor Invitation — PaperDesk`,
+      subject: "Editor Invitation - PaperDesk",
       html: emailHtml,
     });
 
@@ -115,6 +121,7 @@ export const sendOrganizerInviteController = async (req, res) => {
       emailSent: sent,
     });
   } catch (error) {
+    console.error("sendOrganizerInviteController error:", error);
     return res.status(500).json({
       message: "Error sending Editor invitation.",
       error: error.message,
@@ -123,45 +130,46 @@ export const sendOrganizerInviteController = async (req, res) => {
 };
 
 /**
- * Creates a new conference and assigns the creating user as its organizer.
- *
- * SECURITY FIX: userId is now read from the verified JWT token (req.user)
- * instead of req.body. This prevents an attacker from creating a conference
- * under another user's account by supplying a different userId in the request body.
- *
- * Steps performed:
- * 1. Reads userId from the JWT token attached by requireLogin middleware.
- * 2. Validates required fields and checks for duplicate name/acronym.
- * 3. Inserts the conference row with all provided metadata.
- * 4. Upserts an organizer role record for the user on the new conference.
- * 5. Removes the placeholder organizer role record (conference_id = null)
- *    that was created when the user accepted their invitation, as they now
- *    have a concrete conference assigned.
- *
- * @route POST /api/conference/create-conference
- * @param {string}   req.body.conferenceName
- * @param {string}   req.body.acronym
- * @param {string}   req.body.mode              - "single-blind" | "double-blind" | "open"
- * @param {string}   req.body.startDate
- * @param {string}   req.body.endDate
- * @param {string[]} req.body.expertise         - Required reviewer expertise areas.
- * @param {number}   [req.body.max_resubmissions] - null means unlimited.
- * @param {string}   [req.body.webPage]
- * @param {string}   [req.body.venue]
- * @param {string}   [req.body.city]
- * @param {string}   [req.body.country]
- * @param {string}   [req.body.abstractDeadline]
- * @param {string}   [req.body.submissionDeadline]
- * @param {string}   [req.body.primaryArea]
- * @param {string}   [req.body.secondaryArea]
- * @param {string[]} [req.body.topics]
- * @returns {201} Conference created — { conference }.
- * @returns {400} Validation error or duplicate name/acronym.
- * @returns {404} Organizer user not found.
- * @returns {500} Server error.
+ * Creates a new conference and assigns an organizer.
+ * 
+ * Security: userId is read from verified JWT token (req.user) instead of
+ * request body. This prevents attackers from creating conferences under
+ * other users' accounts.
+ * 
+ * Process:
+ * 1. Validate all required fields
+ * 2. Check for duplicate conference name/acronym
+ * 3. Resolve organizer (admin can assign different user, otherwise caller is organizer)
+ * 4. Insert conference record with organizer details
+ * 5. Assign organizer role to the resolved organizer
+ * 6. Remove placeholder NULL conference record if applicable
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.body.conferenceName - Full conference name
+ * @param {string} req.body.acronym - Short unique acronym
+ * @param {string} req.body.mode - Blind review mode: "single-blind" or "double-blind" or "open"
+ * @param {Array<string>} req.body.expertise - Required reviewer expertise keywords
+ * @param {string} req.body.startDate - Conference start date
+ * @param {string} req.body.endDate - Conference end date
+ * @param {number} [req.body.max_resubmissions] - Max resubmissions per paper (null = unlimited)
+ * @param {string} [req.body.webPage] - Conference website
+ * @param {string} [req.body.venue] - Venue name
+ * @param {string} [req.body.city] - City location
+ * @param {string} [req.body.country] - Country location
+ * @param {string} [req.body.abstractDeadline] - Abstract submission deadline
+ * @param {string} [req.body.submissionDeadline] - Paper submission deadline
+ * @param {string} [req.body.primaryArea] - Primary research area
+ * @param {string} [req.body.secondaryArea] - Secondary research area
+ * @param {Array<string>} [req.body.topics] - Conference topics
+ * @param {string} [req.body.organizerEmail] - Email of organizer to assign (admin only)
+ * @returns {201} Conference created successfully
+ * @returns {400} Validation error or duplicate name/acronym
+ * @returns {404} Organizer user not found
+ * @returns {500} Server error
  */
 export const createConferenceController = async (req, res) => {
   try {
+    // Get authenticated user ID from JWT token
     const callerId = req.user._id || req.user.id;
 
     const {
@@ -181,20 +189,22 @@ export const createConferenceController = async (req, res) => {
       expertise,
       mode,
       max_resubmissions,
-      organizerEmail, // ← new field, sent by admin panel only
+      organizerEmail,
     } = req.body;
 
+    // Validate expertise is array
     if (!Array.isArray(expertise)) {
       return res.status(400).json({ message: "Expertise must be an array." });
     }
 
+    // Validate required fields
     if (!conferenceName || !mode || !acronym || !startDate || !endDate || !expertise.length) {
       return res.status(400).json({
         message: "Conference name, acronym, start date, expertise, mode, and end date are required.",
       });
     }
 
-    // Check duplicate name or acronym
+    // Check for duplicate conference name or acronym
     const [{ data: existingByName }, { data: existingByAcronym }] = await Promise.all([
       supabase.from("conferences").select("id").eq("conference_name", conferenceName).maybeSingle(),
       supabase.from("conferences").select("id").eq("acronym", acronym).maybeSingle(),
@@ -206,6 +216,7 @@ export const createConferenceController = async (req, res) => {
       });
     }
 
+    // Validate and parse dates
     const startDateParsed = new Date(startDate);
     const endDateParsed = new Date(endDate);
 
@@ -213,8 +224,7 @@ export const createConferenceController = async (req, res) => {
       return res.status(400).json({ message: "Invalid date format for startDate or endDate." });
     }
 
-    // ── Resolve the actual organizer ──────────────────────────────────────
-    // Fetch the caller's full record to check if they are an admin
+    // Determine the organizer (admin can assign someone else)
     const { data: callerUser } = await supabase
       .from("users")
       .select("id, name, email, role")
@@ -226,10 +236,10 @@ export const createConferenceController = async (req, res) => {
     }
 
     const isAdmin = callerUser.role === 1;
-    let organizerUser = callerUser; // default: the caller is the organizer
+    let organizerUser = callerUser;
 
     if (isAdmin && organizerEmail && organizerEmail.trim() !== "") {
-      // Admin is explicitly assigning someone else as organizer
+      // Admin explicitly assigning someone else as organizer
       const { data: targetUser } = await supabase
         .from("users")
         .select("id, name, email")
@@ -238,16 +248,17 @@ export const createConferenceController = async (req, res) => {
 
       if (!targetUser) {
         return res.status(404).json({
-          message: `No account found for "${organizerEmail}". The Editor must have a PaperDesk account before a conference can be assigned to them.`,
+          message: `No account found for "${organizerEmail}". The Editor must have a PaperDesk account before a conference can be assigned.`,
         });
       }
 
       organizerUser = targetUser;
     }
-    // ─────────────────────────────────────────────────────────────────────
 
+    // Generate public submission link
     const submissionLink = `${process.env.BASE_URL}/conference/${acronym}/submit-paper/${acronym}`;
 
+    // Insert new conference into database
     const { data: newConference, error: confError } = await supabase
       .from("conferences")
       .insert({
@@ -267,9 +278,9 @@ export const createConferenceController = async (req, res) => {
         expertise,
         status: "pending",
         submission_link: submissionLink,
-        organizer_id: organizerUser.id,      // ← resolved organizer
-        organizer_name: organizerUser.name,   // ← resolved organizer
-        organizer_email: organizerUser.email, // ← resolved organizer
+        organizer_id: organizerUser.id,
+        organizer_name: organizerUser.name,
+        organizer_email: organizerUser.email,
         mode,
         max_resubmissions: max_resubmissions !== undefined ? max_resubmissions : null,
       })
@@ -288,9 +299,7 @@ export const createConferenceController = async (req, res) => {
         { onConflict: "user_id,conference_id,role" }
       );
 
-    // Remove the placeholder NULL row for the organizer
-    // This only matters in the normal organizer flow (not the admin flow)
-    // but running it for both is harmless
+    // Remove placeholder NULL conference record (for organizer invitation flow)
     await supabase
       .from("user_conference_roles")
       .delete()
@@ -303,19 +312,20 @@ export const createConferenceController = async (req, res) => {
       conference: newConference,
     });
   } catch (error) {
+    console.error("createConferenceController error:", error);
     return res.status(500).json({ message: "Error creating conference." });
   }
 };
 
 /**
- * Returns a single conference by ID with its submitted papers and author details.
- *
- * @route GET /api/conference/get-conference/:id
- * @param {string} req.params.id - The conference UUID.
- * @returns {200} Conference object merged with papers array.
- * @returns {400} ID parameter is missing.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Retrieves a single conference by ID with all its submitted papers.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @returns {200} Conference object with papers array
+ * @returns {400} Missing conference ID
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const getConferenceController = async (req, res) => {
   try {
@@ -324,6 +334,7 @@ export const getConferenceController = async (req, res) => {
       return res.status(400).json({ message: "Conference ID is required." });
     }
 
+    // Fetch conference
     const { data: conference, error } = await supabase
       .from("conferences")
       .select("*")
@@ -334,6 +345,7 @@ export const getConferenceController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
+    // Fetch papers submitted to this conference
     const { data: papers } = await supabase
       .from("research_papers")
       .select("*, paper_authors(authors(first_name, email))")
@@ -341,18 +353,19 @@ export const getConferenceController = async (req, res) => {
 
     return res.status(200).json({ ...conference, papers: papers || [] });
   } catch (error) {
+    console.error("getConferenceController error:", error);
     return res.status(500).json({ message: "Error retrieving conference." });
   }
 };
 
 /**
- * Returns all conferences in the database regardless of status.
- * Admin only.
- *
- * @route GET /api/conference/all-reg-conferences
- * @returns {200} Array of all conference objects.
- * @returns {404} No conferences found.
- * @returns {500} Server error.
+ * Retrieves all conferences in the system.
+ * Admin only endpoint.
+ * 
+ * @param {Object} req - Express request object
+ * @returns {200} Array of all conference objects
+ * @returns {404} No conferences found
+ * @returns {500} Server error
  */
 export const getAllConferencesController = async (req, res) => {
   try {
@@ -364,30 +377,32 @@ export const getAllConferencesController = async (req, res) => {
 
     return res.status(200).json(conferences);
   } catch (error) {
+    console.error("getAllConferencesController error:", error);
     return res.status(500).json({ message: "Error retrieving conferences." });
   }
 };
 
 /**
- * Updates specified metadata fields of an existing conference.
- * Only fields present in the request body are updated.
- *
- * SECURITY: The route middleware (isOrganizerRole) already verifies the user
- * is an organizer. The conference record itself is identified by the URL param.
- *
- * @route PUT /api/conference/update-conference/:id
- * @param {string} req.params.id - Conference UUID.
- * @returns {200} Updated conference object.
- * @returns {403} User does not own this conference.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Updates conference metadata fields.
+ * Only admins or the conference organizer can update.
+ * 
+ * Security: Route middleware (isOrganizerRole) verifies user authorization.
+ * Only provided fields are updated.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @param {Object} req.body - Fields to update
+ * @returns {200} Updated conference object
+ * @returns {403} User does not own this conference
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const updateConferenceController = async (req, res) => {
   try {
     const conferenceId = req.params.id;
     const userId = req.user._id || req.user.id;
 
-    // Verify the authenticated user is the organizer of this specific conference.
+    // Fetch conference to verify ownership
     const { data: conference } = await supabase
       .from("conferences")
       .select("organizer_id")
@@ -398,7 +413,7 @@ export const updateConferenceController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
-    // Allow admins (role === 1) to update any conference.
+    // Check user authorization (admin or organizer)
     const { data: user } = await supabase
       .from("users")
       .select("role")
@@ -412,6 +427,7 @@ export const updateConferenceController = async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to update this conference." });
     }
 
+    // Extract update fields
     const {
       conferenceName,
       acronym,
@@ -426,22 +442,22 @@ export const updateConferenceController = async (req, res) => {
       primaryArea,
       secondaryArea,
       topics,
-      max_resubmissions,          // <-- ADDED
+      max_resubmissions,
     } = req.body;
 
-    // --- Validate max_resubmissions if provided ---
+    // Validate max_resubmissions if provided
     if (max_resubmissions !== undefined) {
       if (max_resubmissions !== null) {
         const parsed = parseInt(max_resubmissions, 10);
         if (isNaN(parsed) || parsed < 1) {
           return res.status(400).json({
-            message: "max_resubmissions must be a positive integer or null (unlimited)."
+            message: "max_resubmissions must be a positive integer or null (unlimited).",
           });
         }
       }
     }
 
-    // Build update payload from only the fields that were provided.
+    // Build update object with only provided fields
     const updatedData = {};
     if (conferenceName) updatedData.conference_name = conferenceName;
     if (acronym) updatedData.acronym = acronym;
@@ -456,12 +472,11 @@ export const updateConferenceController = async (req, res) => {
     if (primaryArea) updatedData.primary_area = primaryArea;
     if (secondaryArea) updatedData.secondary_area = secondaryArea;
     if (topics) updatedData.topics = topics;
-
-    // --- ADDED: handle max_resubmissions (allow null or number) ---
     if (max_resubmissions !== undefined) {
       updatedData.max_resubmissions = max_resubmissions === null ? null : parseInt(max_resubmissions, 10);
     }
 
+    // Apply updates
     const { data: updatedConference, error } = await supabase
       .from("conferences")
       .update(updatedData)
@@ -478,25 +493,32 @@ export const updateConferenceController = async (req, res) => {
       conference: updatedConference,
     });
   } catch (error) {
+    console.error("updateConferenceController error:", error);
     return res.status(500).json({ message: "Error updating conference." });
   }
 };
 
 /**
- * Permanently deletes a conference by ID.
- * Admin only — enforced by route middleware.
- *
- * @route DELETE /api/conference/delete-conference/:id
- * @param {string} req.params.id - Conference UUID.
- * @returns {200} Deleted conference object.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Permanently deletes a conference and all associated data.
+ * Admin only - enforced by route middleware.
+ * 
+ * Deletion process:
+ * 1. Fetch all papers for this conference
+ * 2. Delete associated PDF files from storage
+ * 3. Delete paper records
+ * 4. Delete conference record (cascades handle related records)
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @returns {200} Deleted conference object
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const deleteConferenceController = async (req, res) => {
   try {
     const conferenceId = req.params.id;
 
-    // Check the conference exists first
+    // Check conference exists
     const { data: conference, error: fetchError } = await supabase
       .from("conferences")
       .select("id")
@@ -507,37 +529,28 @@ export const deleteConferenceController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
-    // Fetch all papers for this conference so we can
-    // delete their PDF files from storage before deleting the rows
+    // Fetch all papers to delete their files
     const { data: papers } = await supabase
       .from("research_papers")
       .select("id, paper_file_path")
       .eq("conference_id", conferenceId);
 
-    // Delete PDF files from Supabase Storage
+    // Delete PDF files from storage
     if (papers && papers.length > 0) {
       const fileNames = papers
         .map((p) => p.paper_file_path?.split("/").pop())
         .filter(Boolean);
 
       if (fileNames.length > 0) {
-        await supabase.storage
-          .from("paper-submissions")
-          .remove(fileNames);
+        await supabase.storage.from("paper-submissions").remove(fileNames);
       }
 
-      // Delete all papers explicitly
-      // (schema uses SET NULL not CASCADE so we do this manually)
+      // Delete paper records
       const paperIds = papers.map((p) => p.id);
-      await supabase
-        .from("research_papers")
-        .delete()
-        .in("id", paperIds);
+      await supabase.from("research_papers").delete().in("id", paperIds);
     }
 
-    // Now delete the conference
-    // Cascades handle: user_conference_roles, assignments,
-    //                  invitations, technical_weightage
+    // Delete conference (cascades handle related records)
     const { data: deletedConference, error } = await supabase
       .from("conferences")
       .delete()
@@ -554,76 +567,103 @@ export const deleteConferenceController = async (req, res) => {
       conference: deletedConference,
     });
   } catch (error) {
+    console.error("deleteConferenceController error:", error);
     return res.status(500).json({ message: "Error deleting conference." });
   }
 };
+
 /**
- * Returns all conferences with status "pending" (awaiting admin approval).
- * Admin only — enforced by route middleware.
- *
- * @route GET /api/conference/pending
- * @returns {200} Array of pending conference objects (empty array if none).
- * @returns {500} Server error.
+ * Retrieves all conferences with status "pending" (awaiting admin approval).
+ * Admin only - enforced by route middleware.
+ * 
+ * @param {Object} req - Express request object
+ * @returns {200} Array of pending conferences (empty array if none)
+ * @returns {500} Server error
  */
 export const getPendingConferencesController = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("conferences").select("*").eq("status", "pending");
-    if (error) return res.status(500).json({ message: "Error retrieving pending conferences." });
+    const { data, error } = await supabase
+      .from("conferences")
+      .select("*")
+      .eq("status", "pending");
+    
+    if (error) {
+      return res.status(500).json({ message: "Error retrieving pending conferences." });
+    }
+    
     return res.status(200).json(data || []);
   } catch (error) {
+    console.error("getPendingConferencesController error:", error);
     return res.status(500).json({ message: "Error retrieving pending conferences." });
   }
 };
 
 /**
- * Returns all conferences with status "approved".
- * Public — no authentication required.
- *
- * @route GET /api/conference/all-conferences
- * @returns {200} Array of approved conference objects (empty array if none).
- * @returns {500} Server error.
+ * Retrieves all conferences with status "approved".
+ * Public endpoint - no authentication required.
+ * 
+ * @param {Object} req - Express request object
+ * @returns {200} Array of approved conferences (empty array if none)
+ * @returns {500} Server error
  */
 export const getApprovedConferencesController = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("conferences").select("*").eq("status", "approved");
-    if (error) return res.status(500).json({ message: "Error retrieving approved conferences." });
+    const { data, error } = await supabase
+      .from("conferences")
+      .select("*")
+      .eq("status", "approved");
+    
+    if (error) {
+      return res.status(500).json({ message: "Error retrieving approved conferences." });
+    }
+    
     return res.status(200).json(data || []);
   } catch (error) {
+    console.error("getApprovedConferencesController error:", error);
     return res.status(500).json({ message: "Error retrieving approved conferences." });
   }
 };
 
 /**
- * Returns all conferences with status "rejected".
- * Admin only — enforced by route middleware.
- *
- * @route GET /api/conference/rejected-conferences
- * @returns {200} Array of rejected conference objects (empty array if none).
- * @returns {500} Server error.
+ * Retrieves all conferences with status "rejected".
+ * Admin only - enforced by route middleware.
+ * 
+ * @param {Object} req - Express request object
+ * @returns {200} Array of rejected conferences (empty array if none)
+ * @returns {500} Server error
  */
 export const getRejectedConferencesController = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("conferences").select("*").eq("status", "rejected");
-    if (error) return res.status(500).json({ message: "Error retrieving rejected conferences." });
+    const { data, error } = await supabase
+      .from("conferences")
+      .select("*")
+      .eq("status", "rejected");
+    
+    if (error) {
+      return res.status(500).json({ message: "Error retrieving rejected conferences." });
+    }
+    
     return res.status(200).json(data || []);
   } catch (error) {
+    console.error("getRejectedConferencesController error:", error);
     return res.status(500).json({ message: "Error retrieving rejected conferences." });
   }
 };
 
 /**
- * Sets a conference's status to "approved".
- * Admin only — enforced by route middleware.
- *
- * @route PUT /api/conference/approve/:id
- * @param {string} req.params.id - Conference UUID.
- * @returns {200} Updated conference object.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Sets a conference status to "approved".
+ * Admin only - enforced by route middleware.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @returns {200} Updated conference object
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const approveConferenceController = async (req, res) => {
   try {
     const { id } = req.params;
+    
     const { data: updatedConference, error } = await supabase
       .from("conferences")
       .update({ status: "approved" })
@@ -635,25 +675,30 @@ export const approveConferenceController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
-    return res.status(200).json({ message: "Conference approved.", conference: updatedConference });
+    return res.status(200).json({ 
+      message: "Conference approved.", 
+      conference: updatedConference 
+    });
   } catch (error) {
+    console.error("approveConferenceController error:", error);
     return res.status(500).json({ message: "Error approving conference." });
   }
 };
 
 /**
- * Sets a conference's status to "rejected".
- * Admin only — enforced by route middleware.
- *
- * @route PUT /api/conference/reject/:id
- * @param {string} req.params.id - Conference UUID.
- * @returns {200} Updated conference object.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Sets a conference status to "rejected".
+ * Admin only - enforced by route middleware.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @returns {200} Updated conference object
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const rejectConferenceController = async (req, res) => {
   try {
     const { id } = req.params;
+    
     const { data: updatedConference, error } = await supabase
       .from("conferences")
       .update({ status: "rejected" })
@@ -665,26 +710,31 @@ export const rejectConferenceController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
-    return res.status(200).json({ message: "Conference rejected.", conference: updatedConference });
+    return res.status(200).json({ 
+      message: "Conference rejected.", 
+      conference: updatedConference 
+    });
   } catch (error) {
+    console.error("rejectConferenceController error:", error);
     return res.status(500).json({ message: "Error rejecting conference." });
   }
 };
 
 /**
  * Returns the full conference name for a given acronym.
- * Used by the public paper-submission page to resolve the conference
- * before the user is authenticated.
- *
- * @route GET /api/conference/:acronym
- * @param {string} req.params.acronym - Conference acronym (e.g. "ICSE25").
- * @returns {200} { conferenceName: string }.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Used by public paper submission page to resolve conference
+ * before user authentication.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.acronym - Conference acronym (e.g., "ICSE25")
+ * @returns {200} Conference name
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const getConferenceByAcronymController = async (req, res) => {
   try {
     const { acronym } = req.params;
+    
     const { data: conference, error } = await supabase
       .from("conferences")
       .select("conference_name")
@@ -697,45 +747,56 @@ export const getConferenceByAcronymController = async (req, res) => {
 
     return res.status(200).json({ conferenceName: conference.conference_name });
   } catch (error) {
+    console.error("getConferenceByAcronymController error:", error);
     return res.status(500).json({ message: "Error fetching conference details." });
   }
 };
 
 /**
- * Returns all papers submitted to a conference, enriched with reviewer
- * assignment status and review recommendations for each paper.
- *
- * @route GET /api/conference/:conferenceId/papers
- * @param {string} req.params.conferenceId - Conference UUID.
- * @returns {200} { papers: Array } — each paper includes reviewers and authors.
- * @returns {404} No papers found.
- * @returns {500} Server error.
+ * Retrieves all papers submitted to a conference with reviewer information.
+ * Enriches papers with:
+ * - Assigned reviewers and their status (pending or reviewed)
+ * - Review recommendations and scores
+ * - Author details
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.conferenceId - Conference UUID
+ * @returns {200} Array of papers with reviewer details
+ * @returns {404} No papers found
+ * @returns {500} Server error
  */
 export const getPapersByConferenceController = async (req, res) => {
   try {
     const { conferenceId } = req.params;
 
+    // Fetch papers
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select("*, paper_authors(authors(first_name, email))")
       .eq("conference_id", conferenceId);
 
-    if (papersError) return res.status(500).json({ message: "Error retrieving papers." });
+    if (papersError) {
+      return res.status(500).json({ message: "Error retrieving papers." });
+    }
 
+    // Fetch reviews
     const { data: allReviews } = await supabase
       .from("reviews")
       .select("id, paper_id, reviewer_id, overall_recommendation, technical_confidence");
 
+    // Fetch assignments
     const { data: allAssignments } = await supabase
       .from("assignments")
       .select("id, paper_id, reviewer_id, users!reviewer_id(name)")
       .eq("conference_id", conferenceId);
 
+    // Enrich papers with reviewer information
     const enrichedPapers = (papers || []).map((paper) => {
       const paperAssignments = (allAssignments || []).filter(
         (a) => a.paper_id === paper.id
       );
 
+      // Map reviewers with their status
       const reviewers = paperAssignments.map((assignment) => {
         const review = (allReviews || []).find(
           (r) => r.paper_id === paper.id && r.reviewer_id === assignment.reviewer_id
@@ -750,6 +811,7 @@ export const getPapersByConferenceController = async (req, res) => {
         };
       });
 
+      // Extract author details
       const authors = (paper.paper_authors || []).map((pa) => ({
         firstName: pa.authors?.first_name,
         email: pa.authors?.email,
@@ -764,31 +826,35 @@ export const getPapersByConferenceController = async (req, res) => {
 
     return res.status(200).json({ papers: enrichedPapers });
   } catch (error) {
+    console.error("getPapersByConferenceController error:", error);
     return res.status(500).json({ message: "Error retrieving papers." });
   }
 };
 
 /**
- * Returns the resubmission status for a specific paper within a conference.
- * Shows how many resubmissions are allowed, how many have been used, and
- * whether the author can still resubmit.
- *
- * @route GET /api/conference/:conferenceId/papers/:paperId/submission-status
- * @param {string} req.params.conferenceId - Conference UUID.
- * @param {string} req.params.paperId      - Paper UUID.
- * @returns {200} { maxResubmissions, currentCount, remaining, unlimited, canResubmit }.
- * @returns {400} Missing parameters or paper does not belong to the conference.
- * @returns {404} Conference or paper not found.
- * @returns {500} Server error.
+ * Retrieves resubmission status for a specific paper.
+ * Shows max allowed resubmissions, current count, and whether
+ * the author can still resubmit.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.conferenceId - Conference UUID
+ * @param {string} req.params.paperId - Paper UUID
+ * @returns {200} Resubmission status information
+ * @returns {400} Missing parameters
+ * @returns {404} Conference or paper not found
+ * @returns {500} Server error
  */
 export const getSubmissionStatusController = async (req, res) => {
   try {
     const { conferenceId, paperId } = req.params;
 
     if (!conferenceId || !paperId) {
-      return res.status(400).json({ message: "Conference ID and Paper ID are required." });
+      return res.status(400).json({ 
+        message: "Conference ID and Paper ID are required." 
+      });
     }
 
+    // Fetch conference and paper in parallel
     const [{ data: conference, error: confError }, { data: paper, error: paperError }] = await Promise.all([
       supabase.from("conferences").select("max_resubmissions").eq("id", conferenceId).maybeSingle(),
       supabase.from("research_papers").select("resubmission_count, conference_id").eq("id", paperId).maybeSingle(),
@@ -802,10 +868,12 @@ export const getSubmissionStatusController = async (req, res) => {
       return res.status(404).json({ message: "Paper not found." });
     }
 
+    // Verify paper belongs to conference
     if (paper.conference_id !== conferenceId) {
       return res.status(400).json({ message: "Paper does not belong to this conference." });
     }
 
+    // Calculate resubmission status
     const maxResubmissions = conference.max_resubmissions ?? null;
     const currentCount = paper.resubmission_count ?? 0;
     const unlimited = maxResubmissions === null;
@@ -819,36 +887,42 @@ export const getSubmissionStatusController = async (req, res) => {
       canResubmit: unlimited || remaining > 0,
     });
   } catch (error) {
+    console.error("getSubmissionStatusController error:", error);
     return res.status(500).json({ message: "Server error." });
   }
 };
 
 /**
- * Sets the maximum number of resubmissions allowed per paper for a conference.
- * Pass max_resubmissions: null to remove the limit (unlimited resubmissions).
- * Only the admin or the conference's own organizer may call this endpoint.
- * Authorization is enforced by the route middleware in conferenceRoute.js.
- *
- * @route PUT /api/conference/:id/max-resubmissions
- * @param {string}      req.params.id              - Conference UUID.
- * @param {number|null} req.body.max_resubmissions - Positive integer limit, or null for unlimited.
- * @returns {200} Confirmation message.
- * @returns {400} Invalid value for max_resubmissions.
- * @returns {404} Conference not found.
- * @returns {500} Server error.
+ * Sets the maximum number of resubmissions allowed for a conference.
+ * Pass null to allow unlimited resubmissions.
+ * 
+ * Only the admin or conference organizer can call this endpoint.
+ * Authorization is enforced by route middleware.
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Conference UUID
+ * @param {number|null} req.body.max_resubmissions - Positive integer or null for unlimited
+ * @returns {200} Confirmation message
+ * @returns {400} Invalid value for max_resubmissions
+ * @returns {404} Conference not found
+ * @returns {500} Server error
  */
 export const setMaxResubmissionsController = async (req, res) => {
   try {
     const { id } = req.params;
     const { max_resubmissions } = req.body;
 
+    // Validate max_resubmissions value
     if (max_resubmissions !== null && max_resubmissions !== undefined) {
       const parsed = parseInt(max_resubmissions, 10);
       if (isNaN(parsed) || parsed < 1) {
-        return res.status(400).json({ message: "max_resubmissions must be a positive integer or null (unlimited)." });
+        return res.status(400).json({ 
+          message: "max_resubmissions must be a positive integer or null (unlimited)." 
+        });
       }
     }
 
+    // Check conference exists
     const { data: conference, error: fetchError } = await supabase
       .from("conferences")
       .select("id")
@@ -859,9 +933,12 @@ export const setMaxResubmissionsController = async (req, res) => {
       return res.status(404).json({ message: "Conference not found." });
     }
 
+    // Update resubmission limit
     const { error: updateError } = await supabase
       .from("conferences")
-      .update({ max_resubmissions: max_resubmissions === null ? null : parseInt(max_resubmissions, 10) })
+      .update({ 
+        max_resubmissions: max_resubmissions === null ? null : parseInt(max_resubmissions, 10) 
+      })
       .eq("id", id);
 
     if (updateError) {
@@ -874,6 +951,7 @@ export const setMaxResubmissionsController = async (req, res) => {
         : `Resubmission limit set to ${max_resubmissions}.`,
     });
   } catch (error) {
+    console.error("setMaxResubmissionsController error:", error);
     return res.status(500).json({ message: "Server error." });
   }
 };

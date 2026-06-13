@@ -272,6 +272,10 @@ export const respondToInvitationController = async (req, res) => {
  * Supabase join on the main assignments select. The frontend converts UTC to
  * the reviewer's local timezone using the browser's Intl API.
  *
+ * validation_info (JSONB) is included in the paper data so the reviewer portal
+ * can display PDF validity status (pages, size, parse errors) if required.
+ * Shape: { isValid: boolean, message: string, fileInfo: { pages, sizeMB, ... } }
+ *
  * @route GET /api/reviewer/assigned-papers/reviewer/:reviewerId
  * @param {string} req.params.reviewerId
  * @returns {200} Array of assigned paper objects, each including dueDate (UTC or null).
@@ -292,7 +296,7 @@ export const getAssignedPapersForReviewerController = async (req, res) => {
     // nested select string. It is fetched separately below.
     const { data: assignments, error } = await supabase
       .from("assignments")
-      .select("assigned_at, conference_id, conferences!conference_id(conference_name, acronym), paper_id, research_papers!paper_id(id, title, abstract, keywords, paper_file_path, conference_name, conference_acronym, status, final_decision, paper_authors(authors(first_name, last_name, email, affiliation)))")
+      .select("assigned_at, conference_id, conferences!conference_id(conference_name, acronym), paper_id, research_papers!paper_id(id, title, abstract, keywords, paper_file_path, conference_name, conference_acronym, status, final_decision, validation_info, paper_authors(authors(first_name, last_name, email, affiliation)))")
       .eq("reviewer_id", reviewerId);
 
     if (error || !assignments || assignments.length === 0) {
@@ -346,6 +350,10 @@ export const getAssignedPapersForReviewerController = async (req, res) => {
         assignedAt: assignment.assigned_at,
         status: paper.status,
         finalDecision: paper.final_decision ?? null,
+        // validation_info replaces the old compliance_report field.
+        // Shape: { isValid, message, fileInfo: { pages, sizeMB, ... } }
+        // Null when the paper was submitted before the validator was introduced.
+        validationInfo: paper.validation_info ?? null,
         authors,
         isReviewedBy: reviewedPaperIds.has(paper.id) ? [reviewerId] : [],
         dueDate: dueDateMap[paper.id] ?? null, // UTC ISO string — frontend converts to local time

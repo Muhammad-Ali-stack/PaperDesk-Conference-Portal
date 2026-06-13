@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import Layout from "../../components/Layout";
 import toast from "react-hot-toast";
 import { useForm } from "react-hook-form";
@@ -9,108 +9,585 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, ChevronDown, Search, CheckCircle2, X } from "lucide-react";
 
+// ─── Helpers ────────────────────────────────────────────────────────────────────
+
+/** ISO2 code → emoji flag (pure JS, zero network) */
+function isoToFlag(iso2) {
+  if (!iso2 || iso2.length !== 2) return "🏳️";
+  return [...iso2.toUpperCase()]
+    .map((c) => String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65))
+    .join("");
+}
+
+function digitsOnly(v) {
+  return (v || "").replace(/\D/g, "");
+}
+
+// Per-country national number length hints
+const PHONE_HINTS = {
+  PK:{min:10,max:10},US:{min:10,max:10},CA:{min:10,max:10},
+  GB:{min:10,max:10},IN:{min:10,max:10},AE:{min:9,max:9},
+  SA:{min:9,max:9},  DE:{min:10,max:12},FR:{min:9,max:9},
+  CN:{min:11,max:11},AU:{min:9,max:9}, BD:{min:10,max:10},
+  NG:{min:10,max:10},EG:{min:10,max:10},PH:{min:10,max:10},
+  TR:{min:10,max:10},ID:{min:9,max:12}, BR:{min:10,max:11},
+  MX:{min:10,max:10},ZA:{min:9,max:9}, MY:{min:9,max:10},
+  KE:{min:9,max:9},  JP:{min:10,max:11},QA:{min:8,max:8},
+  KW:{min:8,max:8},  OM:{min:8,max:8},  JO:{min:9,max:9},
+  IR:{min:10,max:10},IQ:{min:10,max:10},LB:{min:7,max:8},
+  SG:{min:8,max:8},  NZ:{min:8,max:9}, TH:{min:9,max:9},
+};
+
+// ─── Password rules ────────────────────────────────────────────────────────────
 const passwordRules = {
   required: "Password is required.",
-  minLength: { value: 8, message: "Password must be at least 8 characters." },
+  minLength: { value: 8, message: "At least 8 characters required." },
   validate: {
-    hasUppercase: (v) => /[A-Z]/.test(v) || "Password must contain at least one uppercase letter.",
-    hasLowercase: (v) => /[a-z]/.test(v) || "Password must contain at least one lowercase letter.",
-    hasNumber:    (v) => /[0-9]/.test(v) || "Password must contain at least one number.",
+    hasUppercase: (v) => /[A-Z]/.test(v) || "Add an uppercase letter.",
+    hasLowercase: (v) => /[a-z]/.test(v) || "Add a lowercase letter.",
+    hasNumber: (v)    => /[0-9]/.test(v) || "Add a number.",
   },
 };
 
-const confirmPasswordRules = (watchPassword) => ({
+const confirmPasswordRules = (pw) => ({
   required: "Please confirm your password.",
-  validate: (value) => value === watchPassword || "Passwords do not match.",
+  validate: (v) => v === pw || "Passwords don't match.",
 });
 
+// ─── PasswordStrength ──────────────────────────────────────────────────────────
+const PasswordStrength = ({ password }) => {
+  if (!password) return null;
+  const checks = [
+    { label: "8+ chars",  pass: password.length >= 8 },
+    { label: "Uppercase", pass: /[A-Z]/.test(password) },
+    { label: "Lowercase", pass: /[a-z]/.test(password) },
+    { label: "Number",    pass: /[0-9]/.test(password) },
+  ];
+  const passed = checks.filter((c) => c.pass).length;
+  const barColor =
+    passed <= 1 ? "bg-red-500" :
+    passed === 2 ? "bg-amber-400" :
+    passed === 3 ? "bg-blue-500" : "bg-emerald-500";
+  const label =
+    passed <= 1 ? "Weak" :
+    passed === 2 ? "Fair" :
+    passed === 3 ? "Good" : "Strong";
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 flex-1">
+          {[0,1,2,3].map((i) => (
+            <div
+              key={i}
+              className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
+                i < passed ? barColor : "bg-muted"
+              }`}
+            />
+          ))}
+        </div>
+        <span className={`text-[11px] font-semibold w-12 text-right ${
+          passed <= 1 ? "text-red-500" :
+          passed === 2 ? "text-amber-500" :
+          passed === 3 ? "text-blue-500" : "text-emerald-500"
+        }`}>{label}</span>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {checks.map((c, i) => (
+          <span key={i} className={`text-[11px] flex items-center gap-1 ${
+            c.pass ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+          }`}>
+            {c.pass
+              ? <CheckCircle2 className="h-3 w-3" />
+              : <span className="h-3 w-3 rounded-full border border-current inline-block" />}
+            {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── PhoneField — the main star ────────────────────────────────────────────────
+const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, register, errors }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const dropdownRef = useRef(null);
+  const searchRef   = useRef(null);
+
+  const filtered = countries.filter(
+    (c) =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.dial.includes(search.replace(/\D/g, ""))
+  );
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Focus search on open
+  useEffect(() => {
+    if (open) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [open]);
+
+  const phoneRules = {
+    required: "Phone number is required.",
+    validate: (v) => {
+      const digits = digitsOnly(v);
+      if (digits.length < 4) return "Enter a valid phone number.";
+      const hint = PHONE_HINTS[selectedCountry?.code];
+      if (hint) {
+        if (digits.length < hint.min)
+          return `Must be ${hint.min} digits for ${selectedCountry.name}.`;
+        if (digits.length > hint.max)
+          return `Max ${hint.max} digits for ${selectedCountry.name}.`;
+      } else if (digits.length > 15) {
+        return "Too long — max 15 digits.";
+      }
+      return true;
+    },
+  };
+
+  const hasError = !!errors.phone;
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="phone">Phone number</Label>
+
+      <div className="flex" ref={dropdownRef}>
+        {/* ── Dial-code trigger button ── */}
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => setOpen((o) => !o)}
+          className={`
+            relative flex items-center gap-2 h-10 pl-3 pr-2.5
+            border rounded-l-md border-r-0
+            bg-muted/30 hover:bg-muted/60 active:bg-muted
+            transition-colors text-sm font-medium
+            min-w-[108px] shrink-0
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+            disabled:opacity-50 disabled:cursor-not-allowed
+            ${hasError ? "border-destructive" : "border-input"}
+          `}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label="Select country"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : selectedCountry ? (
+            <>
+              <span className="text-xl leading-none select-none" aria-hidden>
+                {selectedCountry.flag}
+              </span>
+              <span className="text-muted-foreground font-mono text-xs tracking-tight">
+                {selectedCountry.dial}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground text-xs">+--</span>
+          )}
+          <ChevronDown
+            className={`h-3.5 w-3.5 text-muted-foreground ml-auto transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {/* ── Number input ── */}
+        <Input
+          id="phone"
+          type="tel"
+          inputMode="numeric"
+          placeholder={
+            selectedCountry?.code === "PK" ? "3001234567" :
+            selectedCountry?.code === "US" || selectedCountry?.code === "CA" ? "2015550123" :
+            selectedCountry?.code === "GB" ? "7911123456" :
+            selectedCountry?.code === "IN" ? "9876543210" :
+            selectedCountry?.code === "AE" ? "501234567" :
+            "Enter number"
+          }
+          {...register("phone", phoneRules)}
+          className={`rounded-l-none border-l-0 flex-1 font-mono ${hasError ? "border-destructive" : ""}`}
+        />
+
+        {/* ── Dropdown panel ── */}
+        {open && (
+          <div
+            className="absolute z-50 mt-11 w-72 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
+            role="listbox"
+            aria-label="Country list"
+          >
+            {/* Search bar */}
+            <div className="p-2.5 border-b border-border bg-muted/20">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  placeholder="Search country or code…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="
+                    w-full pl-8 pr-8 py-2 text-sm
+                    bg-background border border-input rounded-lg
+                    focus:outline-none focus:ring-2 focus:ring-ring
+                    placeholder:text-muted-foreground
+                  "
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Country list */}
+            <ul className="max-h-56 overflow-y-auto overscroll-contain py-1">
+              {filtered.length === 0 ? (
+                <li className="px-4 py-6 text-sm text-muted-foreground text-center">
+                  No countries match "{search}"
+                </li>
+              ) : (
+                filtered.map((c) => {
+                  const isSelected = selectedCountry?.code === c.code;
+                  return (
+                    <li key={c.code} role="option" aria-selected={isSelected}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onCountryChange(c);
+                          setOpen(false);
+                          setSearch("");
+                        }}
+                        className={`
+                          w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left
+                          transition-colors hover:bg-accent
+                          ${isSelected ? "bg-accent/60 font-medium" : ""}
+                        `}
+                      >
+                        <span className="text-xl w-8 text-center shrink-0 select-none" aria-hidden>
+                          {c.flag}
+                        </span>
+                        <span className="flex-1 truncate text-foreground">{c.name}</span>
+                        <span className="text-muted-foreground font-mono text-xs shrink-0">{c.dial}</span>
+                        {isSelected && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+
+            {/* Footer */}
+            {filtered.length > 0 && (
+              <div className="px-3 py-2 border-t border-border bg-muted/10">
+                <p className="text-[11px] text-muted-foreground">
+                  {filtered.length} {filtered.length === 1 ? "country" : "countries"}
+                  {search ? ` matching "${search}"` : ""}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Validation message or hint */}
+      {errors.phone ? (
+        <p className="text-destructive text-xs font-medium flex items-center gap-1">
+          <X className="h-3 w-3 shrink-0" /> {errors.phone.message}
+        </p>
+      ) : selectedCountry ? (
+        <p className="text-xs text-muted-foreground">
+          Digits only — saved as{" "}
+          <span className="font-mono font-medium text-foreground">{selectedCountry.dial} ···</span>
+          {PHONE_HINTS[selectedCountry.code] &&
+            ` · ${PHONE_HINTS[selectedCountry.code].min} digits`}
+        </p>
+      ) : null}
+    </div>
+  );
+};
+
+// ─── LocationFields ────────────────────────────────────────────────────────────
+const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountryChange,
+  setValue, register, errors, watch }) => {
+  const [citiesData, setCitiesData]     = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const watchCountry = watch("country");
+
+  const fetchCities = useCallback(async (countryName) => {
+    if (!countryName) return;
+    setCitiesLoading(true);
+    setCitiesData([]);
+    setValue("city", "");
+    try {
+      const res = await fetch(
+        "https://raw.githubusercontent.com/russ666/all-countries-and-cities-json/master/countries.min.json"
+      );
+      const data = await res.json();
+      const cities = data[countryName];
+      setCitiesData(Array.isArray(cities) ? cities.sort() : []);
+    } catch {
+      setCitiesData([]);
+    } finally {
+      setCitiesLoading(false);
+    }
+  }, [setValue]);
+
+  // When country dropdown changes, sync and fetch cities
+  useEffect(() => {
+    if (!watchCountry) return;
+    const match = countries.find((c) => c.name === watchCountry);
+    if (match && match.code !== selectedCountry?.code) {
+      onCountryChange(match);
+    }
+    fetchCities(watchCountry);
+  }, [watchCountry]); // eslint-disable-line
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {/* Country */}
+      <div className="space-y-1.5">
+        <Label htmlFor="country">Country</Label>
+        <div className="relative">
+          <select
+            id="country"
+            {...register("country", { required: "Select your country." })}
+            disabled={countriesLoading}
+            className={`
+              w-full h-10 pl-3 pr-8 text-sm border rounded-md
+              bg-background appearance-none cursor-pointer
+              focus:outline-none focus:ring-2 focus:ring-ring
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-colors
+              ${errors.country ? "border-destructive" : "border-input"}
+            `}
+          >
+            <option value="">
+              {countriesLoading ? "Loading…" : "Select country"}
+            </option>
+            {countries.map((c) => (
+              <option key={c.code} value={c.name}>
+                {c.flag} {c.name}
+              </option>
+            ))}
+          </select>
+          {countriesLoading ? (
+            <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground pointer-events-none" />
+          ) : (
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          )}
+        </div>
+        {errors.country && (
+          <p className="text-destructive text-xs font-medium flex items-center gap-1">
+            <X className="h-3 w-3" />{errors.country.message}
+          </p>
+        )}
+      </div>
+
+      {/* City */}
+      <div className="space-y-1.5">
+        <Label htmlFor="city">
+          City
+          {citiesLoading && (
+            <Loader2 className="inline ml-1.5 h-3 w-3 animate-spin text-muted-foreground" />
+          )}
+        </Label>
+
+        {citiesData.length > 0 ? (
+          <div className="relative">
+            <select
+              id="city"
+              {...register("city", { required: "Select your city." })}
+              className={`
+                w-full h-10 pl-3 pr-8 text-sm border rounded-md
+                bg-background appearance-none cursor-pointer
+                focus:outline-none focus:ring-2 focus:ring-ring
+                ${errors.city ? "border-destructive" : "border-input"}
+              `}
+            >
+              <option value="">Select city</option>
+              {citiesData.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
+        ) : (
+          <Input
+            id="city"
+            placeholder={
+              !watchCountry ? "Country first" :
+              citiesLoading ? "Loading…" : "Your city"
+            }
+            disabled={!watchCountry || citiesLoading}
+            {...register("city", { required: "City is required." })}
+            className={errors.city ? "border-destructive" : ""}
+          />
+        )}
+
+        {errors.city && (
+          <p className="text-destructive text-xs font-medium flex items-center gap-1">
+            <X className="h-3 w-3" />{errors.city.message}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Register page ──────────────────────────────────────────────────────────────
 const Register = () => {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get("token");
+  const token          = searchParams.get("token");
 
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("");
-  const [inviteConferenceId, setInviteConferenceId] = useState("");
+  // Invite state
+  const [inviteEmail, setInviteEmail]                   = useState("");
+  const [inviteRole, setInviteRole]                     = useState("");
+  const [inviteConferenceId, setInviteConferenceId]     = useState("");
   const [inviteConferenceName, setInviteConferenceName] = useState("");
-  const [tokenLoading, setTokenLoading] = useState(!!token);
-  const [tokenValid, setTokenValid] = useState(!token);
-  const [expertiseOptions, setExpertiseOptions] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [tokenLoading, setTokenLoading]                 = useState(!!token);
+  const [tokenValid, setTokenValid]                     = useState(!token);
+  const [expertiseOptions, setExpertiseOptions]         = useState([]);
+
+  // UI state
+  const [isSubmitting, setIsSubmitting]             = useState(false);
+  const [showPassword, setShowPassword]             = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [emailExistsError, setEmailExistsError] = useState(false);
+  const [emailExistsError, setEmailExistsError]     = useState(false);
+
+  // Countries from API
+  const [countries, setCountries]           = useState([]);
+  const [countriesLoading, setCountriesLoading] = useState(true);
+  const [selectedCountry, setSelectedCountry]   = useState(null);
 
   const isReviewer = inviteRole === "reviewer";
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm({
-    defaultValues: { expertise: [] }
-  });
-  const navigate = useNavigate();
+  const {
+    register, handleSubmit, setValue, watch,
+    formState: { errors },
+  } = useForm({ defaultValues: { expertise: [], phone: "", country: "", city: "" } });
+
+  const navigate      = useNavigate();
   const passwordValue = watch("password", "");
 
-  //  Single useEffect — fetches invite details AND expertise in one call
+  // ── Fetch countries from annexare (GitHub raw, CORS-open) ─────────────────
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res  = await fetch(
+          "https://raw.githubusercontent.com/annexare/Countries/master/dist/countries.min.json"
+        );
+        const data = await res.json();
+
+        const parsed = Object.entries(data)
+          .filter(([code]) => code.length === 2)
+          .map(([code, info]) => {
+            const phones = info.phone || [];
+            if (!phones.length) return null;
+            return {
+              code,
+              name: info.name,
+              flag: isoToFlag(code),
+              dial: "+" + phones[0],
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        setCountries(parsed);
+
+        // Default → Pakistan
+        const pk = parsed.find((c) => c.code === "PK") || parsed[0];
+        setSelectedCountry(pk);
+        if (pk) setValue("country", pk.name);
+      } catch (err) {
+        toast.error("Could not load country list. Check your connection.");
+      } finally {
+        setCountriesLoading(false);
+      }
+    };
+    fetchCountries();
+  }, [setValue]);
+
+  // ── Fetch invite token ────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
     const fetchInvite = async () => {
       try {
         const res = await axios.get(`/api/auth/invitation/${token}`);
         if (res.data.success) {
-          const inviteData = res.data.data;
-          setInviteEmail(inviteData.email);
-          setInviteRole(inviteData.role);
-          setInviteConferenceId(inviteData.conferenceId || "");
-          setInviteConferenceName(inviteData.conferenceName || "");
-          setExpertiseOptions(inviteData.expertise || []); //  comes from backend now
-          setValue("email", inviteData.email);
+          const d = res.data.data;
+          setInviteEmail(d.email);
+          setInviteRole(d.role);
+          setInviteConferenceId(d.conferenceId || "");
+          setInviteConferenceName(d.conferenceName || "");
+          setExpertiseOptions(d.expertise || []);
+          setValue("email", d.email);
           setTokenValid(true);
-        } else {
-          setTokenValid(false);
-        }
-      } catch {
-        setTokenValid(false);
-      } finally {
-        setTokenLoading(false);
-      }
+        } else setTokenValid(false);
+      } catch { setTokenValid(false); }
+      finally  { setTokenLoading(false); }
     };
     fetchInvite();
   }, [token, setValue]);
 
-  //  Second useEffect calling /api/conference/get-conference/:id is REMOVED
-  //    (it required auth which the user doesn't have yet on this page)
+  // ── Handle country change (syncs phone picker ↔ country select) ───────────
+  const handleCountryChange = useCallback((country) => {
+    setSelectedCountry(country);
+    setValue("country", country.name, { shouldValidate: true });
+    setValue("city", "");
+  }, [setValue]);
 
+  // ── Submit ────────────────────────────────────────────────────────────────
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     setEmailExistsError(false);
     try {
+      const fullPhone = `${selectedCountry?.dial || ""}${digitsOnly(data.phone)}`;
       const payload = {
         ...data,
-        role: inviteRole || undefined,
-        conferenceId: inviteConferenceId || undefined,
-        conferenceName: inviteConferenceName || undefined,
+        phone:           fullPhone,
+        role:            inviteRole || undefined,
+        conferenceId:    inviteConferenceId || undefined,
+        conferenceName:  inviteConferenceName || undefined,
         invitationToken: token || undefined,
       };
+      delete payload.confirmPassword;
       const res = await axios.post("/api/auth/register", payload);
       if (res.data.success) {
-        toast.success("User registered successfully!");
+        toast.success("Account created!");
         navigate("/login");
       } else {
-        toast.error(res.data.message || "Registration failed. Please try again.");
+        toast.error(res.data.message || "Registration failed.");
       }
     } catch (error) {
-      const msg = error?.response?.data?.message || "";
-      const statusCode = error?.response?.status;
-      
-      // Check for user already exists error
-      if (statusCode === 409 || msg.toLowerCase().includes("already") || msg.toLowerCase().includes("exist") || msg.toLowerCase().includes("registered")) {
+      const msg  = error?.response?.data?.message || "";
+      const code = error?.response?.status;
+      if (code === 409 || /already|exist|registered/i.test(msg)) {
         setEmailExistsError(true);
-        toast.error("This email is already registered. Please sign in instead.");
+        toast.error("Email already registered. Redirecting to sign in…");
         setTimeout(() => navigate("/login"), 2000);
-      } else if (msg && !msg.toLowerCase().includes("server") && !msg.toLowerCase().includes("internal")) {
+      } else if (msg && !/server|internal/i.test(msg)) {
         toast.error(msg);
       } else {
-        toast.error("Registration could not be completed. Please try again.");
+        toast.error("Registration failed. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -119,59 +596,25 @@ const Register = () => {
 
   const fieldError = (name) => errors[name]?.message;
 
-  const PasswordStrength = ({ password }) => {
-    if (!password) return null;
-    const checks = [
-      { label: "8+ characters", pass: password.length >= 8 },
-      { label: "Uppercase letter", pass: /[A-Z]/.test(password) },
-      { label: "Lowercase letter", pass: /[a-z]/.test(password) },
-      { label: "Number", pass: /[0-9]/.test(password) },
-    ];
-    const passed = checks.filter(c => c.pass).length;
-    const color = passed <= 1 ? "bg-destructive" : passed <= 2 ? "bg-yellow-500" : passed <= 3 ? "bg-blue-500" : "bg-green-500";
-    return (
-      <div className="space-y-1.5 mt-1.5">
-        <div className="flex gap-1">
-          {checks.map((_, i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < passed ? color : "bg-muted"}`} />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-          {checks.map((c, i) => (
-            <span key={i} className={`text-[10px] font-medium ${c.pass ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-              {c.pass ? "✓" : "·"} {c.label}
-            </span>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
+  // ─── Loading skeleton ─────────────────────────────────────────────────────
   if (tokenLoading) {
     return (
       <Layout title="PaperDesk - Register">
         <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
           <div className="w-full max-w-md">
-            <div className="text-center mb-8">
-              <Skeleton className="h-10 w-56 mx-auto" />
-              <Skeleton className="h-4 w-52 mx-auto mt-2" />
+            <div className="text-center mb-8 space-y-2">
+              <Skeleton className="h-9 w-52 mx-auto" />
+              <Skeleton className="h-4 w-44 mx-auto" />
             </div>
             <Card className="shadow-lg">
-              <CardContent className="p-8">
-                <div className="space-y-5">
-                  <div className="space-y-1.5"><Skeleton className="h-4 w-16" /><Skeleton className="h-10 w-full rounded-md" /></div>
-                  <div className="space-y-1.5"><Skeleton className="h-4 w-24" /><Skeleton className="h-10 w-full rounded-md" /></div>
-                  <div className="space-y-1.5"><Skeleton className="h-4 w-16" /><Skeleton className="h-10 w-full rounded-md" /></div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5"><Skeleton className="h-4 w-24" /><Skeleton className="h-10 w-full rounded-md" /></div>
-                    <div className="space-y-1.5"><Skeleton className="h-4 w-14" /><Skeleton className="h-10 w-full rounded-md" /></div>
+              <CardContent className="p-8 space-y-5">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-10 w-full rounded-md" />
                   </div>
-                  <div className="space-y-1.5"><Skeleton className="h-4 w-32" /><Skeleton className="h-10 w-full rounded-md" /><Skeleton className="h-3 w-64" /></div>
-                  <Skeleton className="h-11 w-full rounded-md" />
-                </div>
-                <div className="flex items-center justify-center gap-1.5 mt-6">
-                  <Skeleton className="h-4 w-36" /><Skeleton className="h-4 w-16" />
-                </div>
+                ))}
+                <Skeleton className="h-11 w-full rounded-md" />
               </CardContent>
             </Card>
           </div>
@@ -180,6 +623,7 @@ const Register = () => {
     );
   }
 
+  // ─── Invalid token ────────────────────────────────────────────────────────
   if (token && !tokenValid) {
     return (
       <Layout title="PaperDesk - Invalid Link">
@@ -187,13 +631,15 @@ const Register = () => {
           <Card className="w-full max-w-md text-center">
             <CardContent className="p-8">
               <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-7 h-7 text-destructive" />
               </div>
               <h2 className="text-xl font-bold mb-2">Invalid or Expired Link</h2>
-              <p className="text-muted-foreground text-sm">This invitation link is no longer valid. Please request a new one from the conference Editor.</p>
-              <Button className="mt-6" onClick={() => navigate("/login")}>Go to Sign In</Button>
+              <p className="text-muted-foreground text-sm">
+                This invitation link is no longer valid. Request a new one from the conference Editor.
+              </p>
+              <Button className="mt-6" onClick={() => navigate("/login")}>
+                Go to Sign In
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -201,13 +647,18 @@ const Register = () => {
     );
   }
 
+  // ─── Main form ────────────────────────────────────────────────────────────
   return (
     <Layout title="PaperDesk - Register">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
         <div className="w-full max-w-md animate-fade-in">
+
+          {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-extrabold tracking-tight">
-           {inviteRole ? `Register as ${inviteRole === "organizer" ? "Editor" : inviteRole}` : "Create an account"}
+              {inviteRole
+                ? `Register as ${inviteRole === "organizer" ? "Editor" : inviteRole}`
+                : "Create an account"}
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
               {inviteConferenceName
@@ -219,12 +670,15 @@ const Register = () => {
           <Card className="shadow-lg">
             <CardContent className="p-8">
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
+                {/* Invited-as banner */}
                 {inviteEmail && (
                   <div className="rounded-lg bg-primary/10 border border-primary/20 px-4 py-3 text-sm font-medium text-primary">
                     Invited as: <span className="font-bold">{inviteEmail}</span>
                   </div>
                 )}
 
+                {/* Full name */}
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Full name</Label>
                   <Input
@@ -232,13 +686,18 @@ const Register = () => {
                     placeholder="John Doe"
                     {...register("name", {
                       required: "Full name is required.",
-                      minLength: { value: 2, message: "Name must be at least 2 characters." },
+                      minLength: { value: 2, message: "At least 2 characters." },
                     })}
                     className={fieldError("name") ? "border-destructive" : ""}
                   />
-                  {fieldError("name") && <p className="text-destructive text-xs font-medium">{fieldError("name")}</p>}
+                  {fieldError("name") && (
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
+                      <X className="h-3 w-3" />{fieldError("name")}
+                    </p>
+                  )}
                 </div>
 
+                {/* Email */}
                 <div className="space-y-1.5">
                   <Label htmlFor="email">Email address</Label>
                   <Input
@@ -247,29 +706,32 @@ const Register = () => {
                     placeholder="you@example.com"
                     disabled={!!inviteEmail}
                     {...register("email", {
-                      required: "Email address is required.",
+                      required: "Email is required.",
                       pattern: {
                         value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                        message: "Please enter a valid email address.",
+                        message: "Enter a valid email address.",
                       },
                     })}
                     className={fieldError("email") || emailExistsError ? "border-destructive" : ""}
                   />
-                  {fieldError("email") && <p className="text-destructive text-xs font-medium">{fieldError("email")}</p>}
+                  {fieldError("email") && (
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
+                      <X className="h-3 w-3" />{fieldError("email")}
+                    </p>
+                  )}
                   {emailExistsError && (
                     <div className="flex items-center gap-2 text-xs font-medium text-destructive">
-                      <span>This email is already registered.</span>
-                      <button
-                        type="button"
-                        onClick={() => navigate("/login")}
-                        className="underline hover:no-underline font-semibold"
-                      >
+                      <X className="h-3 w-3 shrink-0" />
+                      This email is already registered.{" "}
+                      <button type="button" onClick={() => navigate("/login")}
+                        className="underline hover:no-underline font-semibold">
                         Sign in here
                       </button>
                     </div>
                   )}
                 </div>
 
+                {/* Password */}
                 <div className="space-y-1.5">
                   <Label htmlFor="password">Password</Label>
                   <div className="relative">
@@ -280,22 +742,23 @@ const Register = () => {
                       {...register("password", passwordRules)}
                       className={fieldError("password") ? "border-destructive pr-10" : "pr-10"}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={showPassword ? "Hide password" : "Show password"}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                   {fieldError("password")
-                    ? <p className="text-destructive text-xs font-medium">{fieldError("password")}</p>
+                    ? <p className="text-destructive text-xs font-medium flex items-center gap-1">
+                        <X className="h-3 w-3" />{fieldError("password")}
+                      </p>
                     : <PasswordStrength password={passwordValue} />
                   }
                 </div>
 
+                {/* Confirm password */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <Label htmlFor="confirm-password">Confirm password</Label>
                   <div className="relative">
                     <Input
                       id="confirm-password"
@@ -304,58 +767,53 @@ const Register = () => {
                       {...register("confirmPassword", confirmPasswordRules(passwordValue))}
                       className={fieldError("confirmPassword") ? "border-destructive pr-10" : "pr-10"}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
+                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}>
                       {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                  {fieldError("confirmPassword") && <p className="text-destructive text-xs font-medium">{fieldError("confirmPassword")}</p>}
+                  {fieldError("confirmPassword") && (
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
+                      <X className="h-3 w-3" />{fieldError("confirmPassword")}
+                    </p>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="phone">Phone number</Label>
-                    <Input
-                      id="phone"
-                      placeholder="+1 234 567 890"
-                      {...register("phone", {
-                        required: "Phone number is required.",
-                        pattern: {
-                          value: /^\+?[\d\s\-()]{7,15}$/,
-                          message: "Please enter a valid phone number.",
-                        },
-                      })}
-                      className={fieldError("phone") ? "border-destructive" : ""}
-                    />
-                    {fieldError("phone") && <p className="text-destructive text-xs font-medium">{fieldError("phone")}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="address">Location</Label>
-                    <Input
-                      id="address"
-                      placeholder="City, Country"
-                      {...register("address", { required: "Location is required." })}
-                      className={fieldError("address") ? "border-destructive" : ""}
-                    />
-                    {fieldError("address") && <p className="text-destructive text-xs font-medium">{fieldError("address")}</p>}
-                  </div>
+                {/* ── Phone field (the premium dial-code picker) ── */}
+                {/* Positioned relative so the dropdown is scoped correctly */}
+                <div className="relative">
+                  <PhoneField
+                    countries={countries}
+                    loading={countriesLoading}
+                    selectedCountry={selectedCountry}
+                    onCountryChange={handleCountryChange}
+                    register={register}
+                    errors={errors}
+                  />
                 </div>
 
+                {/* ── Country + City ── */}
+                <LocationFields
+                  countries={countries}
+                  countriesLoading={countriesLoading}
+                  selectedCountry={selectedCountry}
+                  onCountryChange={handleCountryChange}
+                  setValue={setValue}
+                  register={register}
+                  errors={errors}
+                  watch={watch}
+                />
+
+                {/* Expertise (reviewer only) */}
                 {isReviewer && expertiseOptions.length > 0 && (
                   <div className="space-y-2">
                     <Label>Areas of expertise</Label>
                     <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg bg-muted/30">
                       {expertiseOptions.map((exp, i) => (
                         <label key={i} className="flex items-center gap-2 text-sm cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            {...register("expertise")}
-                            value={exp}
-                            className="w-4 h-4 rounded accent-primary"
-                          />
+                          <input type="checkbox" {...register("expertise")} value={exp}
+                            className="w-4 h-4 rounded accent-primary" />
                           <span className="group-hover:text-primary transition-colors">{exp}</span>
                         </label>
                       ))}
@@ -363,28 +821,35 @@ const Register = () => {
                   </div>
                 )}
 
+                {/* Recovery key */}
                 <div className="space-y-1.5">
                   <Label htmlFor="recovery_key">Secret recovery key</Label>
                   <Input
                     id="recovery_key"
-                    placeholder="A memorable phrase for password reset"
+                    placeholder="A memorable phrase for account recovery"
                     {...register("recovery_key", {
-                      required: "A secret recovery key is required.",
-                      minLength: { value: 6, message: "Recovery key must be at least 6 characters." },
+                      required: "A recovery key is required.",
+                      minLength: { value: 6, message: "At least 6 characters." },
                     })}
                     className={fieldError("recovery_key") ? "border-destructive" : ""}
                   />
                   {fieldError("recovery_key")
-                    ? <p className="text-destructive text-xs font-medium">{fieldError("recovery_key")}</p>
-                    : <p className="text-xs text-muted-foreground">Used to recover your account if you forget your password.</p>
+                    ? <p className="text-destructive text-xs font-medium flex items-center gap-1">
+                        <X className="h-3 w-3" />{fieldError("recovery_key")}
+                      </p>
+                    : <p className="text-xs text-muted-foreground">
+                        Used to reset your password if you're ever locked out.
+                      </p>
                   }
                 </div>
 
+                {/* Submit */}
                 <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">
-                  {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating Account...</> : (
-                    inviteRole === "reviewer" ? "Register as Reviewer" :
-              inviteRole === "organizer" ? "Register as Editor" : "Create Account"
-                  )}
+                  {isSubmitting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating account…</>
+                  ) : inviteRole === "reviewer"  ? "Register as Reviewer"
+                    : inviteRole === "organizer" ? "Register as Editor"
+                    : "Create Account"}
                 </Button>
               </form>
 

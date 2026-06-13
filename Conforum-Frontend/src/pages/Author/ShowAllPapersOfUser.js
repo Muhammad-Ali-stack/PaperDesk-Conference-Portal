@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { useAuth } from "../../context/Auth";
+import { useNavigate } from "react-router-dom";
 import Layout from "../../components/Layout";
+import { useAuth } from "../../context/Auth";
 import toast from "react-hot-toast";
 import {
   Select,
@@ -28,16 +28,14 @@ import {
   Pencil,
   ExternalLink,
   RefreshCw,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 
 // Helper function to get auth headers
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  };
+  const token = localStorage.getItem("token");
+  return { headers: { Authorization: `Bearer ${token}` } };
 };
 
 // ---------------------------------------------------------------------------
@@ -83,6 +81,46 @@ const decisionLabel = (decision) => {
 };
 
 // ---------------------------------------------------------------------------
+// PDF Validation inline block
+// ---------------------------------------------------------------------------
+const ValidationBlock = ({ validationInfo }) => {
+  if (validationInfo === null || validationInfo === undefined) {
+    return (
+      <span className="text-xs text-muted-foreground italic">
+        No validation data available.
+      </span>
+    );
+  }
+
+  return (
+    <div
+      className={`flex items-start gap-2 rounded-md px-2.5 py-2 text-xs border ${
+        validationInfo.isValid
+          ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
+          : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
+      }`}
+    >
+      {validationInfo.isValid ? (
+        <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+      ) : (
+        <XCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+      )}
+      <div className="space-y-0.5">
+        <p className="font-semibold">{validationInfo.isValid ? "Valid PDF" : "Invalid PDF"}</p>
+        <p className="opacity-80">{validationInfo.message}</p>
+        {validationInfo.fileInfo && (
+          <p className="opacity-70">
+            {validationInfo.fileInfo.pages != null && `Pages: ${validationInfo.fileInfo.pages}`}
+            {validationInfo.fileInfo.pages != null && validationInfo.fileInfo.sizeMB != null && " · "}
+            {validationInfo.fileInfo.sizeMB != null && `Size: ${validationInfo.fileInfo.sizeMB} MB`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // DeleteModal
 // ---------------------------------------------------------------------------
 const DeleteModal = ({ title, onConfirm, onCancel }) => (
@@ -98,12 +136,8 @@ const DeleteModal = ({ title, onConfirm, onCancel }) => (
           This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <Button variant="outline" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" size="sm" onClick={onConfirm}>
-            Delete
-          </Button>
+          <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button variant="destructive" size="sm" onClick={onConfirm}>Delete</Button>
         </div>
       </CardContent>
     </Card>
@@ -164,32 +198,29 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     if (!conferenceId || !paperId) return;
     setLoadingStatus(true);
     axios
-      .get(`/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`, getAuthHeaders())
-      .then((res) => {
-        setSubmissionStatus(res.data?.data ?? null);
-      })
-      .catch((err) => {
-        console.error("submission-status fetch failed:", err?.response?.status);
-      })
-      .finally(() => {
-        setLoadingStatus(false);
-      });
+      .get(
+        `/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`,
+        getAuthHeaders()
+      )
+      .then((res) => setSubmissionStatus(res.data?.data ?? null))
+      .catch((err) => console.error("submission-status fetch failed:", err?.response?.status))
+      .finally(() => setLoadingStatus(false));
   }, [conferenceId, paperId]);
 
   const finalDecision = (paper.final_decision || "").toLowerCase();
-  const paperStatus = (paper.status || "pending").toLowerCase();
+  const paperStatus   = (paper.status || "pending").toLowerCase();
 
   const effectiveStatus = (() => {
-    if (finalDecision === "rejected") return "rejected";
-    if (finalDecision === "accepted") return "accepted";
+    if (finalDecision === "rejected")              return "rejected";
+    if (finalDecision === "accepted")              return "accepted";
     if (finalDecision === "modification required") return "modification required";
     return paperStatus;
   })();
 
-  const isAssigned   = paperStatus === "assigned";
+  const isAssigned    = paperStatus === "assigned";
   const isModRequired = finalDecision === "modification required";
-  const isRejected   = finalDecision === "rejected";
-  const isAccepted   = finalDecision === "accepted";
+  const isRejected    = finalDecision === "rejected";
+  const isAccepted    = finalDecision === "accepted";
 
   const canResubmitByLimit = submissionStatus ? submissionStatus.canResubmit : true;
 
@@ -230,7 +261,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     paper.organizer_comments_for_authors ?? paper.organizerCommentsForAuthors ?? null;
 
   const allComments = [];
-
   if (paper.reviews?.length > 0) {
     paper.reviews.forEach((review) => {
       if (review.comments_for_authors) {
@@ -241,13 +271,13 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
       }
     });
   }
-
   if (organizerComments) {
-    allComments.push({
-      text: organizerComments,
-      confidence: null,
-    });
+    allComments.push({ text: organizerComments, confidence: null });
   }
+
+  // Read validation_info from whichever key the API returns
+  const validationInfo =
+    paper.validationInfo ?? paper.validation_info ?? null;
 
   return (
     <>
@@ -408,27 +438,12 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 </div>
               )}
 
+              {/* PDF Validation — replaces the old IEEE Compliance progress bar */}
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                  IEEE Compliance
+                  PDF Validation
                 </p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-muted rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full transition-all ${
-                        (paper.compliance_report?.percentage ?? 0) >= 80
-                          ? "bg-green-500"
-                          : (paper.compliance_report?.percentage ?? 0) >= 50
-                          ? "bg-yellow-500"
-                          : "bg-red-500"
-                      }`}
-                      style={{ width: `${paper.compliance_report?.percentage ?? 0}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium text-foreground w-8 text-right">
-                    {paper.compliance_report?.percentage ?? 0}%
-                  </span>
-                </div>
+                <ValidationBlock validationInfo={validationInfo} />
               </div>
 
               {allComments.length > 0 && (
@@ -510,8 +525,7 @@ const AllPapersOfAuthor = () => {
       setLoadingConferences(true);
       try {
         const res = await axios.get(`/api/author/${userId}/conferences`, getAuthHeaders());
-        const fetched = res.data?.data?.conferences ?? [];
-        setConferences(fetched);
+        setConferences(res.data?.data?.conferences ?? []);
       } catch (err) {
         console.error("Error fetching conferences:", err.response?.data);
         toast.error(err.response?.data?.message || "Unable to load conferences. Please try again.");
@@ -528,18 +542,13 @@ const AllPapersOfAuthor = () => {
       setLoadingPapers(true);
       setPapers([]);
       try {
-        console.log(`Fetching papers for user ${userId}, conference ${selectedConferenceId}`);
-        const res = await axios.get(`/api/author/${userId}/${selectedConferenceId}/papers`, getAuthHeaders());
-        console.log("API Response:", res.data);
-        
+        const res = await axios.get(
+          `/api/author/${userId}/${selectedConferenceId}/papers`,
+          getAuthHeaders()
+        );
         const fetched = res.data?.data?.papers ?? [];
-        console.log(`Found ${fetched.length} papers`);
-        
         setPapers(Array.isArray(fetched) ? fetched : []);
-        
-        if (fetched.length === 0) {
-          toast.success("No papers found for this conference");
-        }
+        if (fetched.length === 0) toast.success("No papers found for this conference");
       } catch (err) {
         console.error("Error fetching papers:", err.response?.data);
         if (err.response?.status === 401) {
@@ -559,7 +568,10 @@ const AllPapersOfAuthor = () => {
 
   const handleDelete = async (paperId) => {
     try {
-      await axios.delete(`/api/author/delete-paper/${paperId}/${selectedConferenceId}`, getAuthHeaders());
+      await axios.delete(
+        `/api/author/delete-paper/${paperId}/${selectedConferenceId}`,
+        getAuthHeaders()
+      );
       setPapers((prev) => prev.filter((p) => (p.id || p._id) !== paperId));
       toast.success("Paper deleted successfully.");
     } catch (err) {

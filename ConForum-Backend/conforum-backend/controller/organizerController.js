@@ -393,6 +393,10 @@ export const getAssignmentsByConferenceController = async (req, res) => {
  * Each row includes paper metadata, assigned reviewers, their review status,
  * recommendations, scores, and the organizer's final decision.
  *
+ * validation_info replaces the old compliance_report field.
+ * It is a JSONB column populated by the PDF validator at submission time.
+ * Schema: { isValid: boolean, message: string, fileInfo: { pages, sizeMB, ... } }
+ *
  * @route GET /api/organizer/review-management/:conferenceId
  * @param {string} req.params.conferenceId - Conference UUID.
  * @returns {200} Array of enriched paper objects.
@@ -402,9 +406,11 @@ export const getReviewManagementDataController = async (req, res) => {
   try {
     const { conferenceId } = req.params;
 
+    // NOTE: validation_info replaces the old compliance_report column.
+    // compliance_report has been removed from this select entirely.
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
-      .select("id, title, status, final_decision, compliance_report, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
+      .select("id, title, status, final_decision, validation_info, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
       .eq("conference_id", conferenceId);
 
     if (papersError) {
@@ -464,6 +470,12 @@ export const getReviewManagementDataController = async (req, res) => {
       // (all assignments for a paper share the same due date).
       const paperDueDate = paperAssignments[0]?.due_date || null;
 
+      // validation_info shape: { isValid, message, fileInfo: { pages, sizeMB, ... } }
+      // validationScore exposes isValid as a boolean for the frontend table.
+      // The full validation_info object is also passed so the frontend can show
+      // detailed file info (pages, size, parse errors) if needed.
+      const validationInfo = paper.validation_info ?? null;
+
       return {
         paperId: paper.id,
         title: paper.title,
@@ -472,7 +484,10 @@ export const getReviewManagementDataController = async (req, res) => {
         status: paper.status,
         decision: paper.final_decision,
         avgTechConfidence,
-        complianceScore: paper.compliance_report?.percentage ?? null,
+        // validation_info replaces complianceScore from the old IEEE checker.
+        // isValid: true means the PDF passed all format/readability checks.
+        validationInfo,
+        validationScore: validationInfo?.isValid ?? null,
         plagiarismScore: paper.organizer_plagiarism_score ?? null,
         organizerCommentsForAuthors: paper.organizer_comments_for_authors ?? null,
         authors,

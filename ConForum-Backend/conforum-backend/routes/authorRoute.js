@@ -5,7 +5,6 @@ import {
   deletePaperController,
   updatePaperController,
   getUserConferencePapersController,
-  checkComplianceController,
   submitPaperController,
   getAuthorConferencesController,
   getSubmissionStatusController,
@@ -15,11 +14,7 @@ import { requireLogin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// ─── Public routes ────────────────────────────────────────────────────────────
-// check-compliance is called before login on the public paper submission page
-router.post("/check-compliance", upload.single("paper"), checkComplianceController);
-
-// ─── Static protected routes ──────────────────────────────────────────────────
+// ─── Protected routes ──────────────────────────────────────────────────────────
 router.post("/submit-paper", requireLogin, upload.single("paper"), submitPaperController);
 router.get("/research-paper/:id", requireLogin, getResearchPaperByIdController);
 router.get("/all-research-papers", requireLogin, getAllResearchPapersController);
@@ -29,9 +24,7 @@ router.delete("/delete-paper/:id/:conferenceId", requireLogin, deletePaperContro
 // MUST be here — before any /:userId/... dynamic routes
 router.get("/conference/:conferenceId/papers/:paperId/submission-status", requireLogin, getSubmissionStatusController);
 
-// ─── Dynamic protected routes ─────────────────────────────────────────────────
-// These must come AFTER all static routes because /:userId will greedily
-// match any segment — including the word "conference" above.
+// ─── Dynamic protected routes ──────────────────────────────────────────────────
 router.get("/:userId/conferences", requireLogin, getAuthorConferencesController);
 router.get("/:userId/:conferenceId/papers", requireLogin, getUserConferencePapersController);
 
