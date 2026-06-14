@@ -233,7 +233,7 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
                 <input
                   ref={searchRef}
                   type="text"
-                  placeholder="Search country or code…"
+                  placeholder="Search by country code…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="
