@@ -113,7 +113,7 @@ export const registerController = async (req, res) => {
     if (!email) return res.status(400).json({ success: false, message: "Email is required." });
     if (!password) return res.status(400).json({ success: false, message: "Password is required." });
     if (!phone) return res.status(400).json({ success: false, message: "Phone is required." });
-    if (!address) return res.status(400).json({ success: false, message: "Address is required." });
+
     if (!recovery_key) return res.status(400).json({ success: false, message: "Recovery key is required." });
 
     /**
@@ -218,7 +218,7 @@ export const registerController = async (req, res) => {
     const hashedRecoveryKey = await bcrypt.hash(recovery_key, 10);
     const { data: savedUser, error: insertError } = await supabase
       .from("users")
-      .insert({ name, email, password: hashedPassword, phone, address, recovery_key: hashedRecoveryKey })
+     .insert({ name, email, password: hashedPassword, phone, ...(address && { address }), recovery_key: hashedRecoveryKey })
       .select()
       .single();
 
