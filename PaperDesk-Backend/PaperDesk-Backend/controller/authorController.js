@@ -9,9 +9,6 @@ const getSupabasePublicUrl = (bucket, filePath) => {
   return `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 };
 
-// ============================================================================
-// 1. submitPaperController
-// ============================================================================
 export const submitPaperController = async (req, res) => {
   try {
     const {
@@ -181,7 +178,10 @@ export const submitPaperController = async (req, res) => {
       });
     }
 
-    const authorIds = [];
+    // authorLinks carries the per-paper corresponding-author flag separately
+    // from the authors table, since corresponding status is specific to this
+    // paper, not a global property of the person.
+    const authorLinks = [];
     for (const authorData of authors) {
       let authorId = existingAuthorMap.get(authorData.email);
 
@@ -195,7 +195,6 @@ export const submitPaperController = async (req, res) => {
             country: authorData.country || null,
             affiliation: authorData.affiliation || null,
             web_page: authorData.webPage || null,
-            corresponding_author: authorData.correspondingAuthor || false,
             user_id: userId,
           })
           .select("id")
@@ -207,18 +206,22 @@ export const submitPaperController = async (req, res) => {
         }
         authorId = newAuthor.id;
       }
+
       if (authorId) {
-        authorIds.push(authorId);
+        authorLinks.push({
+          authorId,
+          corresponding: Boolean(authorData.corresponding),
+        });
       }
     }
 
-    // Link authors to paper
-    const validAuthorIds = authorIds.filter(Boolean);
-    if (validAuthorIds.length > 0) {
+    // Link authors to paper, including the per-paper corresponding-author flag
+    if (authorLinks.length > 0) {
       await supabase.from("paper_authors").insert(
-        validAuthorIds.map((authorId) => ({
+        authorLinks.map(({ authorId, corresponding }) => ({
           paper_id: paper.id,
           author_id: authorId,
+          corresponding_author: corresponding,
         }))
       );
     }
@@ -772,9 +775,6 @@ export const getResearchPaperByIdController = async (req, res) => {
   }
 };
 
-// ============================================================================
-// 8. getUserConferencePapersController
-// ============================================================================
 export const getUserConferencePapersController = async (req, res) => {
   try {
     const { userId, conferenceId } = req.params;
@@ -831,6 +831,9 @@ export const getUserConferencePapersController = async (req, res) => {
     }
 
     // Step 3: Fetch full paper details including all authors per paper
+    // corresponding_author now lives on paper_authors (per-paper), not on
+    // authors (which is global to the person), so it's selected at the
+    // paper_authors level alongside the nested authors object.
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select(`
@@ -850,13 +853,13 @@ export const getUserConferencePapersController = async (req, res) => {
         organizer_comments_for_authors,
         reviews (comments_for_authors, technical_confidence),
         paper_authors (
+          corresponding_author,
           authors (
             id,
             first_name,
             last_name,
             email,
-            affiliation,
-            corresponding_author
+            affiliation
           )
         )
       `)

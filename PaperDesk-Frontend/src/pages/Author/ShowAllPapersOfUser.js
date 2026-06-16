@@ -425,39 +425,38 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
               )}
 
               {/* Authors — fixed to handle nested pa.authors shape from backend */}
-              {paper.paper_authors?.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                    Authors
-                  </p>
-                  <ul className="space-y-1">
-                    {paper.paper_authors.map((pa, i) => {
-                      const author = pa.authors ?? pa;
-                      const firstName = author?.first_name || author?.firstName || "";
-                      const lastName  = author?.last_name  || author?.lastName  || "";
-                      const email     = author?.email || "";
-                      const isCorresponding =
-                        author?.corresponding_author ?? author?.correspondingAuthor ?? false;
-                      const fullName =
-                        [firstName, lastName].filter(Boolean).join(" ") || "Unknown Author";
-                      return (
-                        <li key={i} className="text-xs text-foreground">
-                          <span>{fullName}</span>
-                          {isCorresponding && (
-                            <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
-                              Corresponding
-                            </Badge>
-                          )}
-                          {email && (
-                            <span className="block text-muted-foreground">{email}</span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-
+            {/* Authors — corresponding_author now lives on pa (paper_authors row), not pa.authors */}
+{paper.paper_authors?.length > 0 && (
+  <div>
+    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+      Authors
+    </p>
+    <ul className="space-y-1">
+      {paper.paper_authors.map((pa, i) => {
+        const author = pa.authors ?? pa;
+        const firstName = author?.first_name || author?.firstName || "";
+        const lastName  = author?.last_name  || author?.lastName  || "";
+        const email     = author?.email || "";
+        const isCorresponding = pa?.corresponding_author ?? false;
+        const fullName =
+          [firstName, lastName].filter(Boolean).join(" ") || "Unknown Author";
+        return (
+          <li key={i} className="text-xs text-foreground">
+            <span>{fullName}</span>
+            {isCorresponding && (
+              <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
+                Corresponding
+              </Badge>
+            )}
+            {email && (
+              <span className="block text-muted-foreground">{email}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)}
               {/* PDF Validation display */}
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">

@@ -749,3 +749,5 @@ CREATE INDEX IF NOT EXISTS idx_papers_validation
 ALTER TABLE users
   DROP COLUMN IF EXISTS password,
   DROP COLUMN IF EXISTS recovery_key;
+
+  alter table paper_authors add column corresponding_author boolean default false;
