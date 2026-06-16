@@ -222,23 +222,69 @@ CREATE TABLE IF NOT EXISTS invitations (
 -- ============================================================
 -- TABLE: login_otps
 --
--- One-time 6-digit codes sent to users during the login flow.
--- A user must pass the credential check first; the OTP is the
--- second factor before a JWT is issued.
+-- One-time 6-digit codes for the passwordless login flow.
+-- The user supplies their email; the backend generates a 6-digit
+-- OTP, bcrypt-hashes it, and stores the hash here.
 --
--- used: set to TRUE after the code is consumed by
---   verifyOtpController to prevent replay attacks.
+-- otp_code: bcrypt hash of the raw OTP (NOT the plain code).
+--   verifyOtpController uses bcrypt.compare for validation.
+--
+-- attempts: incremented on each failed verification attempt.
+--   After MAX_OTP_ATTEMPTS (5) failures the row is marked used.
+--   Protects against brute-force OTP guessing.
+--
+-- used: set to TRUE after the code is successfully verified OR
+--   after MAX_OTP_ATTEMPTS failures to prevent replay attacks.
 --
 -- expires_at: set to NOW() + 10 minutes at creation time.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS login_otps (
   id          UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id     UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  -- bcrypt hash of the raw 6-digit OTP
   otp_code    TEXT        NOT NULL,
   expires_at  TIMESTAMPTZ NOT NULL,
-  -- Set to TRUE when the code is successfully verified
+  -- Set to TRUE when the code is successfully verified or max attempts exceeded
   used        BOOLEAN     NOT NULL DEFAULT FALSE,
+  -- Counts failed verification attempts for brute-force protection
+  attempts    INTEGER     NOT NULL DEFAULT 0,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+-- ============================================================
+-- TABLE: trusted_devices
+--
+-- Supports the "Trusted Device" authentication flow.
+-- When a user successfully verifies an OTP, a long-lived refresh
+-- token is generated and its bcrypt hash is stored here.
+-- On subsequent logins from the same device the refresh token
+-- cookie is validated against this table, allowing the user to
+-- skip OTP verification (silent re-authentication).
+--
+-- token_hash: bcrypt hash of the raw 64-byte random refresh token.
+--   The raw token is stored in an HttpOnly Secure cookie on the
+--   client. Only the hash lives server-side.
+--
+-- expires_at: refresh tokens are valid for 30 days by default.
+--   Refresh token rotation: each use replaces the old hash with
+--   a new one and resets expires_at.
+--
+-- Normal logout: clears the cookie; this record is PRESERVED so
+--   the next login from the same device is seamless.
+--
+-- "Logout all devices": DELETES all rows for the user; forces
+--   OTP verification on every device on the next login.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS trusted_devices (
+  id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id       UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  -- bcrypt hash of the raw refresh token stored in the client cookie
+  token_hash    TEXT        NOT NULL,
+  -- Token lifetime: 30 days from creation or last use
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 
@@ -546,6 +592,14 @@ CREATE INDEX IF NOT EXISTS idx_invitations_token
 CREATE INDEX IF NOT EXISTS idx_login_otps_user
   ON login_otps (user_id);
 
+-- trusted_devices -- lookup by user_id when validating refresh token cookie
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_user
+  ON trusted_devices (user_id);
+
+-- trusted_devices -- range scan to discard expired records quickly
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_expires
+  ON trusted_devices (expires_at);
+
 -- paper_authors -- join from both directions
 CREATE INDEX IF NOT EXISTS idx_paper_authors_paper
   ON paper_authors (paper_id);
@@ -662,8 +716,36 @@ ALTER TABLE assignments
 CREATE INDEX IF NOT EXISTS idx_assignments_due_date
   ON assignments (due_date);
 
-  ALTER TABLE research_papers
+-- login_otps: attempt counter for brute-force OTP protection.
+-- Introduced with the Trusted Device Auth flow (v2.0).
+ALTER TABLE login_otps
+  ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+
+-- trusted_devices: stores hashed refresh tokens for the Trusted Device Auth flow.
+-- Introduced in v2.0. Run this entire block on existing databases.
+CREATE TABLE IF NOT EXISTS trusted_devices (
+  id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id       UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  token_hash    TEXT        NOT NULL,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for trusted_devices (safe to run multiple times)
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_user
+  ON trusted_devices (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_expires
+  ON trusted_devices (expires_at);
+
+ALTER TABLE research_papers
   ADD COLUMN IF NOT EXISTS validation_info JSONB DEFAULT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_papers_validation
   ON research_papers USING GIN (validation_info);
+  -- Remove password and recovery_key columns from users table
+-- (login is now fully OTP-based, no password needed)
+ALTER TABLE users
+  DROP COLUMN IF EXISTS password,
+  DROP COLUMN IF EXISTS recovery_key;

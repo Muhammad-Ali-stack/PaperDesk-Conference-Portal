@@ -82,28 +82,46 @@ const AssignPapersPage = () => {
     if (!conferenceId) return;
     if (!silent) setRefreshing(true);
     try {
-      const res = await axios.get(`/api/conference/get-conference/${conferenceId}`);
-      let fetchedPapers = null;
-      if (res.data?.data?.papers) fetchedPapers = res.data.data.papers;
-      else if (res.data?.papers) fetchedPapers = res.data.papers;
-      else fetchedPapers = [];
+      let fetchedPapers = [];
+
+      try {
+        const res = await axios.get(`/api/conference/get-conference/${conferenceId}`);
+        if (res.data?.data?.papers) fetchedPapers = res.data.data.papers;
+        else if (res.data?.papers) fetchedPapers = res.data.papers;
+      } catch (e1) {
+        if (e1?.response?.status !== 404) throw e1;
+      }
 
       if (!fetchedPapers.length) {
-        const papersRes = await axios.get(`/api/conference/${conferenceId}/papers`);
-        fetchedPapers = papersRes.data?.papers || [];
+        try {
+          const papersRes = await axios.get(`/api/conference/${conferenceId}/papers`);
+          fetchedPapers = papersRes.data?.papers || [];
+        } catch (e2) {
+          if (e2?.response?.status !== 404) throw e2;
+        }
       }
+
       setPapers(fetchedPapers);
 
-      if (fetchedPapers.length) {
-        const paperIds = fetchedPapers.map((p) => getPaperId(p)).filter(Boolean);
-        if (paperIds.length) {
-          const assignRes = await axios.post("/api/organizer/papers/assigned-reviewers", { paperIds });
-          setAssignmentsByPaper(assignRes.data?.data || {});
-        }
+      if (!fetchedPapers.length) {
+        if (!silent) toast("No papers submitted for this conference yet.", { icon: "📋" });
+        return;
+      }
+
+      const paperIds = fetchedPapers.map((p) => getPaperId(p)).filter(Boolean);
+      if (paperIds.length) {
+        const assignRes = await axios.post("/api/organizer/papers/assigned-reviewers", { paperIds });
+        setAssignmentsByPaper(assignRes.data?.data || {});
       }
     } catch (err) {
       console.error("Auto-refresh error:", err);
-      if (!silent) toast.error("No Papers found for this conference.");
+      const status = err?.response?.status;
+      if (status === 404 || status === 204) {
+        setPapers([]);
+        if (!silent) toast("No papers submitted for this conference yet.", { icon: "📋" });
+      } else {
+        if (!silent) toast.error("No papers submitted for this conference yet.");
+      }
     } finally {
       if (!silent) setRefreshing(false);
       setLoadingPapers(false);
@@ -147,7 +165,7 @@ const AssignPapersPage = () => {
 
     try {
       const [reviewersRes, assignmentsRes] = await Promise.all([
-        axios.get(`/api/reviewer/${conferenceId}/reviewers`),
+        axios.get(`/api/reviewer/${conferenceId}/reviewers?paperId=${paperId}`),
         axios.post("/api/organizer/papers/assigned-reviewers", { paperIds: [paperId] }),
       ]);
       setAvailableReviewers(reviewersRes.data?.data || []);
@@ -158,7 +176,6 @@ const AssignPapersPage = () => {
       // Pre-fill due date if one already exists for this paper (convert UTC -> local)
       if (pa?.dueDate) {
         const localDt = new Date(pa.dueDate);
-        // Format to "YYYY-MM-DDTHH:mm" for datetime-local input
         const pad = (n) => String(n).padStart(2, "0");
         const formatted = `${localDt.getFullYear()}-${pad(localDt.getMonth() + 1)}-${pad(localDt.getDate())}T${pad(localDt.getHours())}:${pad(localDt.getMinutes())}`;
         setDueDate(formatted);
@@ -241,7 +258,6 @@ const AssignPapersPage = () => {
         const body = { paperId, reviewerIds: chosenIds, conferenceId };
         if (!existingPlagiarismScore) body.plagiarismScore = parseFloat(plagiarismScore);
 
-        // Include due date + timezone if the organizer set one
         if (dueDate) {
           body.dueDate = dueDate;
           body.timezone = timezone;
@@ -262,8 +278,7 @@ const AssignPapersPage = () => {
       }
 
       // -----------------------------------------------------------------------
-      // Mode B: Review Myself — plagiarism score is sent WITH the decision.
-      // The updateFinalDecisionController already handles saving it atomically.
+      // Mode B: Review Myself
       // -----------------------------------------------------------------------
       if (modalMode === "give_decision") {
         if (!organizerDecision) {
@@ -278,7 +293,6 @@ const AssignPapersPage = () => {
           commentsForAuthors: organizerCommentsForAuthors,
         };
 
-        // Only include plagiarismScore when it hasn't been recorded yet
         if (!existingPlagiarismScore) {
           decisionPayload.plagiarismScore = parseFloat(plagiarismScore);
         }
@@ -681,19 +695,33 @@ const AssignPapersPage = () => {
                         className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-teal-500"
                       >
                         <option value="">-- Reviewer {slotIndex + 1} (optional) --</option>
-                        {availableReviewers.map((r) => (
-                          <option
-                            key={r.user_id}
-                            value={r.user_id}
-                            disabled={excludedIds.includes(r.user_id)}
-                          >
-                            {r.users?.name} ({r.users?.email})
-                            {assignedReviewerIds.includes(r.user_id) ? " (Already assigned)" : ""}
-                          </option>
-                        ))}
+                        {availableReviewers.map((r) => {
+                          const isExcluded = excludedIds.includes(r.user_id);
+                          const isConflict = r.isConflict === true;
+                          return (
+                            <option
+                              key={r.user_id}
+                              value={r.user_id}
+                              disabled={isExcluded || isConflict}
+                            >
+                              {r.users?.name} ({r.users?.email})
+                              {assignedReviewerIds.includes(r.user_id)
+                                ? " (Already assigned)"
+                                : isConflict
+                                ? " ⚠ Conflict of interest"
+                                : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     );
                   })}
+
+                  {availableReviewers.some((r) => r.isConflict) && (
+                    <p className="text-xs text-amber-600 flex items-center gap-1">
+                      ⚠ Reviewers marked "Conflict of interest" are authors of this paper and cannot be assigned.
+                    </p>
+                  )}
 
                   {!atLeastOneReviewerChosen && (
                     <p className="text-xs text-amber-600">

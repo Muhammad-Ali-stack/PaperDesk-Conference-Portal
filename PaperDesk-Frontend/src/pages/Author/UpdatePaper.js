@@ -23,119 +23,78 @@ import {
   FileText,
 } from "lucide-react";
 
-const COMPLIANCE_BLOCK_THRESHOLD = 40;
-const COMPLIANCE_WARN_THRESHOLD  = 60;
-
-const getComplianceColor = (pct) => {
-  if (pct < COMPLIANCE_BLOCK_THRESHOLD) return "red";
-  if (pct < COMPLIANCE_WARN_THRESHOLD)  return "yellow";
-  return "green";
-};
-
-const complianceColorMap = {
-  red: {
-    wrapper: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",
-    badge:   "bg-red-600 text-white",
-    banner:  "bg-red-100 dark:bg-red-900/50 border border-red-300 dark:border-red-700 text-red-800 dark:text-red-200",
-  },
-  yellow: {
-    wrapper: "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800",
-    badge:   "bg-yellow-500 text-white",
-    banner:  "bg-yellow-100 dark:bg-yellow-900/50 border border-yellow-300 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200",
-  },
-  green: {
-    wrapper: "bg-green-50 dark:bg-green-950/30 border-green-100 dark:border-green-800",
-    badge:   "bg-green-600 text-white",
-    banner:  null,
-  },
-};
-
-const getRuleStyle = (detail) => {
-  if (detail.rule === "Author Anonymity" && detail.severity === "error") {
-    return {
-      text:        "text-red-900 dark:text-red-100",
-      messageText: "text-red-800 dark:text-red-200",
-      suggestion:  "text-red-700 dark:text-red-300",
-      bg:          "bg-red-100 dark:bg-red-950/50 border border-red-400 dark:border-red-700 p-3 rounded-lg",
-    };
-  }
-  if (detail.severity === "warning") {
-    return {
-      text:        "text-yellow-900 dark:text-yellow-100",
-      messageText: "text-yellow-800 dark:text-yellow-200",
-      suggestion:  "text-yellow-700 dark:text-yellow-300",
-      bg:          "bg-yellow-100 dark:bg-yellow-950/50 border border-yellow-300 dark:border-yellow-700 p-3 rounded-lg",
-    };
-  }
-  return {
-    text:        "text-foreground",
-    messageText: "text-muted-foreground",
-    suggestion:  "text-primary",
-    bg:          "bg-muted/20 border border-border p-3 rounded-lg",
-  };
-};
-
 const UpdatePaper = () => {
-  const navigate    = useNavigate();
-  const [auth]      = useAuth();
-  const { search }  = useLocation();
+  const navigate = useNavigate();
+  const [auth] = useAuth();
+  const { search } = useLocation();
   const queryParams = new URLSearchParams(search);
-  const paperId       = queryParams.get("paperId");
-  const conferenceId  = queryParams.get("conferenceId");
-  const isResubmit    = queryParams.get("resubmit") === "true";
+  const paperId = queryParams.get("paperId");
+  const conferenceId = queryParams.get("conferenceId");
+  const isResubmit = queryParams.get("resubmit") === "true";
 
   const fileInputRef = useRef(null);
-  const [selectedFile,      setSelectedFile]      = useState(null);
-  const [complianceReport,  setComplianceReport]  = useState(null);
-  const [complianceLoading, setComplianceLoading] = useState(false);
-  const [showModal,         setShowModal]         = useState(false);
-  const [loading,           setLoading]           = useState(false);
-  const [error,             setError]             = useState(null);
-  const [submissionStatus,  setSubmissionStatus]  = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [submissionStatus, setSubmissionStatus] = useState(null);
 
   const [paperDetails, setPaperDetails] = useState({
-    title: "", abstract: "", keywords: "",
-    conferenceName: "", conferenceAcronym: "", authors: [], file: null,
+    title: "",
+    abstract: "",
+    keywords: "",
+    conferenceName: "",
+    conferenceAcronym: "",
   });
   const [initialPaperDetails, setInitialPaperDetails] = useState({
-    title: "", abstract: "", keywords: "",
-    conferenceName: "", conferenceAcronym: "", authors: [], file: null,
+    title: "",
+    abstract: "",
+    keywords: "",
+    conferenceName: "",
+    conferenceAcronym: "",
   });
 
-  const isBlocked =
-    complianceReport !== null &&
-    complianceReport.percentage < COMPLIANCE_BLOCK_THRESHOLD;
+  const limitReached =
+    isResubmit &&
+    submissionStatus !== null &&
+    submissionStatus.canResubmit === false;
 
-  const limitReached = isResubmit && submissionStatus !== null && submissionStatus.canResubmit === false;
-
-  // Fetch resubmission limit info (only for resubmit flow)
+  // ── Fetch resubmission limit info (only for resubmit flow) ─────────────────
   useEffect(() => {
     if (!isResubmit || !conferenceId || !paperId) return;
     axios
-      .get(`/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`)
+      .get(
+        `/api/author/conference/${conferenceId}/papers/${paperId}/submission-status`
+      )
       .then((res) => {
-        //  Response shape: { success: true, data: { unlimited, canResubmit, ... } }
         setSubmissionStatus(res.data?.data ?? null);
       })
       .catch(() => {});
   }, [isResubmit, conferenceId, paperId]);
 
-  // Fetch existing paper details
+  // ── Fetch existing paper details ────────────────────────────────────────────
   useEffect(() => {
     if (!paperId) return;
     const fetchPaperDetails = async () => {
       try {
-        const response = await axios.get(`/api/author/research-paper/${paperId}`);
-        //  Response shape: { success: true, data: { ... } }
-        const data = response.data?.data || {};
+        const response = await axios.get(
+          `/api/author/research-paper/${paperId}`
+        );
+        // Backend returns: { success, data: { paper: { ... } } }
+        const data = response.data?.data?.paper || {};
+
+        // Handle keywords as array or string consistently
+        const keywordsValue = Array.isArray(data.keywords)
+          ? data.keywords.join(", ")
+          : typeof data.keywords === "string"
+          ? data.keywords
+          : "";
+
         const details = {
-          title:             data.title             || "",
-          abstract:          data.abstract          || "",
-          keywords:          data.keywords?.join(", ") || "",
-          conferenceName:    data.conferenceName    || "",
-          conferenceAcronym: data.conferenceAcronym || "",
-          authors:           data.authors           || [],
-          file:              data.file              || null,
+          title: data.title || "",
+          abstract: data.abstract || "",
+          keywords: keywordsValue,
+          conferenceName: data.conference_name || "",
+          conferenceAcronym: data.conference_acronym || "",
         };
         setPaperDetails(details);
         setInitialPaperDetails(details);
@@ -152,111 +111,116 @@ const UpdatePaper = () => {
     setPaperDetails((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = async (e) => {
+  // Select PDF file directly — no compliance check call.
+  const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
     if (file.type !== "application/pdf") {
       toast.error("Please upload a PDF file only.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
+
     setSelectedFile(file);
-    setPaperDetails((prev) => ({ ...prev, file }));
-    setComplianceReport(null);
-    setComplianceLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("paper", file);
-      const response = await axios.post("/api/author/check-compliance", formData);
-      //  Response shape: { success: true, data: { complianceReport } }
-      const report = response.data?.data?.complianceReport || null;
-      setComplianceReport(report);
-      if (report && report.percentage < COMPLIANCE_BLOCK_THRESHOLD) {
-        toast.error(`Compliance score ${report.percentage}% is below the minimum 40%.`);
-      } else {
-        toast.success("Compliance check completed.");
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Error performing compliance check.");
-    } finally {
-      setComplianceLoading(false);
-    }
   };
 
   const removeFile = () => {
     setSelectedFile(null);
-    setPaperDetails((prev) => ({ ...prev, file: null }));
-    setComplianceReport(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // ── Build only changed fields for the payload ───────────────────────────────
   const getChangedData = () => {
     const changedData = {};
-    if (paperDetails.title             !== initialPaperDetails.title)             changedData.title             = paperDetails.title;
-    if (paperDetails.abstract          !== initialPaperDetails.abstract)          changedData.abstract          = paperDetails.abstract;
-    if (paperDetails.keywords          !== initialPaperDetails.keywords)          changedData.keywords          = paperDetails.keywords;
-    if (paperDetails.conferenceName    !== initialPaperDetails.conferenceName)    changedData.conferenceName    = paperDetails.conferenceName;
-    if (paperDetails.conferenceAcronym !== initialPaperDetails.conferenceAcronym) changedData.conferenceAcronym = paperDetails.conferenceAcronym;
-    if (JSON.stringify(paperDetails.authors) !== JSON.stringify(initialPaperDetails.authors)) changedData.authors = paperDetails.authors;
-    if (paperDetails.file !== initialPaperDetails.file) changedData.file = paperDetails.file;
+    if (paperDetails.title !== initialPaperDetails.title)
+      changedData.title = paperDetails.title;
+    if (paperDetails.abstract !== initialPaperDetails.abstract)
+      changedData.abstract = paperDetails.abstract;
+    if (paperDetails.keywords !== initialPaperDetails.keywords)
+      changedData.keywords = paperDetails.keywords;
+    // file tracked separately via selectedFile
+    if (selectedFile) changedData.file = selectedFile;
     return changedData;
   };
 
+  // ── Actual submit to backend ────────────────────────────────────────────────
   const doSubmit = async () => {
     setLoading(true);
     const changedData = getChangedData();
-    if (Object.keys(changedData).length === 0) {
-      toast.info("No changes detected.");
+
+    // Check both changedData AND selectedFile for any changes
+    if (
+      !isResubmit &&
+      Object.keys(changedData).length === 0 &&
+      !selectedFile
+    ) {
+      toast.error("No changes to save.");
       setLoading(false);
       return;
     }
+
+    // Resubmit requires a new file
+    if (isResubmit && !selectedFile) {
+      toast.error("Please upload your revised manuscript before resubmitting.");
+      setLoading(false);
+      return;
+    }
+
     const formData = new FormData();
-    Object.entries(changedData).forEach(([key, value]) => {
-      if (key === "authors") formData.append(key, JSON.stringify(value));
-      else if (key === "file") formData.append("paper", value);
-      else formData.append(key, value);
-    });
-    formData.append("userId",     auth?.user?._id || auth?.user?.id);
-    formData.append("isResubmit", isResubmit);
+
+    // Append changed text fields
+    if (changedData.title) formData.append("title", changedData.title);
+    if (changedData.abstract)
+      formData.append("abstract", changedData.abstract);
+    if (changedData.keywords) formData.append("keywords", changedData.keywords);
+
+    // Append file — backend multer expects field name "paper"
+    if (changedData.file) formData.append("paper", changedData.file);
+
+    // Always send userId and isResubmit as string (backend checks === "true")
+    formData.append("userId", auth?.user?._id || auth?.user?.id || "");
+    formData.append("isResubmit", isResubmit ? "true" : "false");
+
     try {
-      await axios.put(`/api/author/update-paper-details/${paperId}`, formData);
-      toast.success("Paper updated successfully!");
-      navigate("/userdashboard/author-dashboard");
+      await axios.put(
+        `/api/author/update-paper-details/${paperId}`,
+        formData
+      );
+      toast.success(
+        isResubmit
+          ? "Paper resubmitted successfully!"
+          : "Paper updated successfully!"
+      );
+      navigate("/userdashboard/papers");
     } catch (err) {
-      toast.error("Error updating paper");
+      const msg = err.response?.data?.message || "Error updating paper";
+      toast.error(msg);
       console.error("Update Error:", err.response?.data || err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Form submit handler ─────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (limitReached) {
-      toast.error("Resubmission limit reached. You cannot submit any more revisions for this paper.");
+      toast.error(
+        "Resubmission limit reached. You cannot submit any more revisions for this paper."
+      );
       return;
     }
+
+    // Resubmit requires a new file
     if (isResubmit && !selectedFile) {
       toast.error("Please upload your revised manuscript before resubmitting.");
       return;
     }
-    if (isBlocked) {
-      toast.error(`Score ${complianceReport.percentage}% is below minimum ${COMPLIANCE_BLOCK_THRESHOLD}%.`);
-      return;
-    }
-    if (
-      complianceReport &&
-      complianceReport.percentage >= COMPLIANCE_BLOCK_THRESHOLD &&
-      complianceReport.percentage < COMPLIANCE_WARN_THRESHOLD
-    ) {
-      setShowModal(true);
-      return;
-    }
+
     await doSubmit();
   };
-
-  const colour  = complianceReport ? getComplianceColor(complianceReport.percentage) : "green";
-  const colours = complianceColorMap[colour];
 
   if (!paperId) {
     return (
@@ -269,10 +233,14 @@ const UpdatePaper = () => {
   }
 
   return (
-    <Layout title={isResubmit ? "PaperDesk - Resubmit Paper" : "PaperDesk - Update Paper"}>
+    <Layout
+      title={
+        isResubmit ? "PaperDesk - Resubmit Paper" : "PaperDesk - Update Paper"
+      }
+    >
       <div className="flex-1 overflow-auto bg-background">
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-10 py-10">
-
+          {/* Page header */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-1">
               <div className="h-8 w-1 rounded-full bg-primary" />
@@ -287,18 +255,55 @@ const UpdatePaper = () => {
             </p>
           </div>
 
+          {/* Resubmission limit banner */}
           {limitReached && (
             <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-destructive">Resubmission limit reached</p>
+                <p className="text-sm font-semibold text-destructive">
+                  Resubmission limit reached
+                </p>
                 <p className="text-xs text-destructive/80 mt-0.5">
-                  You have used all {submissionStatus.maxResubmissions} resubmission{submissionStatus.maxResubmissions !== 1 ? "s" : ""} allowed by the organizer for this paper. No further resubmissions can be made.
+                  You have used all{" "}
+                  {submissionStatus.maxResubmissions} resubmission
+                  {submissionStatus.maxResubmissions !== 1 ? "s" : ""} allowed by
+                  the organizer for this paper. No further resubmissions can be
+                  made.
                 </p>
               </div>
             </div>
           )}
 
+          {/* Resubmission count info banner */}
+          {isResubmit && submissionStatus && !limitReached && (
+            <div className="mb-6 p-4 bg-primary/5 border border-primary/20 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Resubmission {submissionStatus.currentCount + 1}
+                  {submissionStatus.unlimited
+                    ? ""
+                    : ` of ${submissionStatus.maxResubmissions}`}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {submissionStatus.unlimited
+                    ? "This conference has no resubmission limit."
+                    : `You have ${
+                        submissionStatus.maxResubmissions -
+                        submissionStatus.currentCount
+                      } resubmission${
+                        submissionStatus.maxResubmissions -
+                          submissionStatus.currentCount !==
+                        1
+                          ? "s"
+                          : ""
+                      } remaining after this one.`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Fetch error */}
           {error && (
             <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
               {error}
@@ -307,8 +312,7 @@ const UpdatePaper = () => {
 
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-              {/* LEFT COLUMN */}
+              {/* ── LEFT COLUMN: Paper details ── */}
               <div className="flex flex-col gap-6">
                 <Card>
                   <CardHeader className="border-b border-border pb-4">
@@ -357,27 +361,47 @@ const UpdatePaper = () => {
                         placeholder="e.g. AI, Deep Learning, Cloud Computing"
                         required
                       />
-                      <p className="text-xs text-muted-foreground">Separate with commas</p>
+                      <p className="text-xs text-muted-foreground">
+                        Separate with commas
+                      </p>
                     </div>
+
+                    {/* Read-only conference info */}
+                    {paperDetails.conferenceName && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-semibold text-foreground">
+                          Conference
+                        </label>
+                        <Input
+                          value={`${paperDetails.conferenceName} (${paperDetails.conferenceAcronym})`}
+                          disabled
+                          className="opacity-60 cursor-not-allowed"
+                        />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
 
-              {/* RIGHT COLUMN */}
+              {/* ── RIGHT COLUMN: File upload ── */}
               <div className="flex flex-col gap-6">
                 <Card className="flex-1">
                   <CardHeader className="border-b border-border pb-4">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Upload className="h-4 w-4 text-primary" />
                       Manuscript Upload
+                      {isResubmit && (
+                        <Badge variant="secondary" className="ml-auto text-xs">
+                          Required for resubmit
+                        </Badge>
+                      )}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-6 space-y-5">
+                    {/* Drop zone */}
                     <div
                       className={`relative group border-2 border-dashed rounded-xl p-10 text-center transition-all ${
-                        isBlocked
-                          ? "border-destructive/50 bg-destructive/5"
-                          : selectedFile
+                        selectedFile
                           ? "border-green-500/50 bg-green-500/5"
                           : "border-border hover:border-primary hover:bg-muted/20"
                       }`}
@@ -392,16 +416,12 @@ const UpdatePaper = () => {
                       <div className="space-y-3 pointer-events-none">
                         <div
                           className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto transition-colors ${
-                            isBlocked
-                              ? "bg-destructive/10 text-destructive"
-                              : selectedFile
+                            selectedFile
                               ? "bg-green-500/10 text-green-600 dark:text-green-400"
                               : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
                           }`}
                         >
-                          {isBlocked ? (
-                            <XCircle className="w-7 h-7" />
-                          ) : selectedFile ? (
+                          {selectedFile ? (
                             <CheckCircle className="w-7 h-7" />
                           ) : (
                             <Upload className="w-7 h-7" />
@@ -410,9 +430,7 @@ const UpdatePaper = () => {
 
                         {selectedFile ? (
                           <div>
-                            <p className={`text-sm font-bold truncate max-w-xs mx-auto ${
-                              isBlocked ? "text-destructive" : "text-green-600 dark:text-green-400"
-                            }`}>
+                            <p className="text-sm font-bold truncate max-w-xs mx-auto text-green-600 dark:text-green-400">
                               {selectedFile.name}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
@@ -425,7 +443,7 @@ const UpdatePaper = () => {
                               Click to upload PDF
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              IEEE format preferred · Max 10 MB
+                              IEEE format preferred
                             </p>
                           </div>
                         )}
@@ -442,132 +460,41 @@ const UpdatePaper = () => {
                           className="text-xs text-muted-foreground hover:text-destructive"
                         >
                           <XCircle className="h-3.5 w-3.5 mr-1" />
-                          Remove & replace
+                          Remove &amp; replace
                         </Button>
-                      </div>
-                    )}
-
-                    {complianceLoading && (
-                      <div className="flex items-center justify-center gap-2 text-primary text-xs font-semibold py-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Validating IEEE compliance…
-                      </div>
-                    )}
-
-                    {complianceReport && (
-                      <div className={`rounded-xl p-5 border ${colours.wrapper}`}>
-                        <div className="flex justify-between items-center mb-3">
-                          <h3 className="text-sm font-bold text-foreground">Compliance Audit</h3>
-                          <Badge className={`text-xs ${colours.badge}`}>
-                            {complianceReport.percentage}% Score
-                          </Badge>
-                        </div>
-
-                        {colour === "red" && colours.banner && (
-                          <div className={`mb-3 flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold ${colours.banner}`}>
-                            <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                            Submission blocked — score below {COMPLIANCE_BLOCK_THRESHOLD}%. Fix issues and re-upload.
-                          </div>
-                        )}
-
-                        {colour === "yellow" && colours.banner && (
-                          <div className={`mb-3 flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold ${colours.banner}`}>
-                            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                            Low score — you may still submit but improving it is recommended.
-                          </div>
-                        )}
-
-                        <ul className="space-y-2">
-                          {complianceReport.details.map((detail, index) => {
-                            const style = getRuleStyle(detail);
-                            return (
-                              <li key={index} className={style.bg}>
-                                <p className={`text-xs font-bold ${style.text}`}>{detail.rule}</p>
-                                <p className={`text-xs ${style.messageText}`}>{detail.message}</p>
-                                {detail.suggestion && (
-                                  <p className={`text-xs font-semibold mt-0.5 italic ${style.suggestion}`}>
-                                    Suggest: {detail.suggestion}
-                                  </p>
-                                )}
-                              </li>
-                            );
-                          })}
-                        </ul>
                       </div>
                     )}
                   </CardContent>
                 </Card>
 
+                {/* Submit button */}
                 <div className="flex flex-col gap-2">
                   <Button
                     type="submit"
-                    disabled={loading || isBlocked || complianceLoading || limitReached}
+                    disabled={loading || limitReached}
                     size="lg"
                     className="w-full font-bold text-sm h-12"
-                    variant={isBlocked || limitReached ? "destructive" : "default"}
+                    variant={limitReached ? "destructive" : "default"}
                   >
                     {loading ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving changes…</>
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Saving changes…
+                      </>
                     ) : limitReached ? (
                       "Resubmission Limit Reached"
-                    ) : isBlocked ? (
-                      `Blocked — score too low (${complianceReport?.percentage}%)`
                     ) : isResubmit ? (
                       "Resubmit Paper"
                     ) : (
                       "Save Changes"
                     )}
                   </Button>
-
-                  {isBlocked && !limitReached && (
-                    <p className="text-center text-xs text-destructive font-medium">
-                      Minimum {COMPLIANCE_BLOCK_THRESHOLD}% IEEE compliance required.
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
           </form>
         </div>
       </div>
-
-      {/* Warning modal (yellow zone) */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle className="text-base">Low Compliance Score</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="h-11 w-11 rounded-full bg-yellow-100 dark:bg-yellow-900/50 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Score: {complianceReport?.percentage}%</p>
-                  <p className="text-xs text-muted-foreground">Below recommended 60% threshold</p>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Your paper meets the minimum requirement but improving the IEEE compliance
-                score may increase your chances of acceptance.
-              </p>
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" size="sm" onClick={() => setShowModal(false)}>
-                  Go back & fix
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-yellow-500 hover:bg-yellow-600 text-white"
-                  onClick={async () => { setShowModal(false); await doSubmit(); }}
-                >
-                  Submit anyway
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </Layout>
   );
 };

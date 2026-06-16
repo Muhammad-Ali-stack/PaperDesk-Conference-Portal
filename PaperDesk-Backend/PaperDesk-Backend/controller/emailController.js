@@ -32,7 +32,7 @@ export const sendInvitationController = async (req, res) => {
 
       const inviteToken = crypto.randomUUID();
 
-      const inviteLink = `${process.env.BASE_URL}/register?role=reviewer&token=${inviteToken}&conferenceId=${conferenceId}&conferenceName=${encodeURIComponent(conferenceName)}`;
+      const inviteLink = `${process.env.BASE_URL}/login?role=reviewer&token=${inviteToken}&conferenceId=${conferenceId}&conferenceName=${encodeURIComponent(conferenceName)}`;
 
       await supabase
         .from("invitations")

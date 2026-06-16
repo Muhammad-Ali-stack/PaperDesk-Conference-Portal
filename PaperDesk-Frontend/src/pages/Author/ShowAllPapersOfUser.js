@@ -81,7 +81,7 @@ const decisionLabel = (decision) => {
 };
 
 // ---------------------------------------------------------------------------
-// PDF Validation inline block (FIXED: uses 'validated' field from backend)
+// PDF Validation inline block
 // ---------------------------------------------------------------------------
 const ValidationBlock = ({ validationInfo }) => {
   if (validationInfo === null || validationInfo === undefined) {
@@ -92,7 +92,6 @@ const ValidationBlock = ({ validationInfo }) => {
     );
   }
 
-  // Backend stores the flag as 'validated', not 'isValid'
   const isValid = validationInfo.validated === true;
 
   return (
@@ -214,7 +213,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
   const finalDecision = (paper.final_decision || "").toLowerCase();
   const paperStatus   = (paper.status || "pending").toLowerCase();
 
-  // Determine the effective status based on final decision or paper status
   const effectiveStatus = (() => {
     if (finalDecision === "rejected")              return "rejected";
     if (finalDecision === "accepted")              return "accepted";
@@ -229,7 +227,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 
   const canResubmitByLimit = submissionStatus ? submissionStatus.canResubmit : true;
 
-  // Determine if the paper can be edited or deleted
   const canEdit =
     !isRejected &&
     !isAccepted &&
@@ -263,11 +260,9 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     }
   };
 
-  // Organizer comments for the author
   const organizerComments =
     paper.organizer_comments_for_authors ?? paper.organizerCommentsForAuthors ?? null;
 
-  // Collect all comments (from reviews + organizer)
   const allComments = [];
   if (paper.reviews?.length > 0) {
     paper.reviews.forEach((review) => {
@@ -283,9 +278,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     allComments.push({ text: organizerComments, confidence: null });
   }
 
-  // Validation info may come as 'validationInfo' or 'validation_info'
-  const validationInfo =
-    paper.validationInfo ?? paper.validation_info ?? null;
+  const validationInfo = paper.validationInfo ?? paper.validation_info ?? null;
 
   return (
     <>
@@ -431,23 +424,36 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 </div>
               )}
 
+              {/* Authors — fixed to handle nested pa.authors shape from backend */}
               {paper.paper_authors?.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                     Authors
                   </p>
                   <ul className="space-y-1">
-                    {paper.paper_authors.map((pa, i) => (
-                      <li key={i} className="text-xs text-foreground">
-                        {pa.authors?.first_name} {pa.authors?.last_name}
-                        {pa.authors?.corresponding_author && (
-                          <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
-                            Corresponding
-                          </Badge>
-                        )}
-                        <span className="block text-muted-foreground">{pa.authors?.email}</span>
-                      </li>
-                    ))}
+                    {paper.paper_authors.map((pa, i) => {
+                      const author = pa.authors ?? pa;
+                      const firstName = author?.first_name || author?.firstName || "";
+                      const lastName  = author?.last_name  || author?.lastName  || "";
+                      const email     = author?.email || "";
+                      const isCorresponding =
+                        author?.corresponding_author ?? author?.correspondingAuthor ?? false;
+                      const fullName =
+                        [firstName, lastName].filter(Boolean).join(" ") || "Unknown Author";
+                      return (
+                        <li key={i} className="text-xs text-foreground">
+                          <span>{fullName}</span>
+                          {isCorresponding && (
+                            <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
+                              Corresponding
+                            </Badge>
+                          )}
+                          {email && (
+                            <span className="block text-muted-foreground">{email}</span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -566,14 +572,16 @@ const AllPapersOfAuthor = () => {
         );
         const fetched = res.data?.data?.papers ?? [];
         setPapers(Array.isArray(fetched) ? fetched : []);
-        if (fetched.length === 0) toast.success("No papers found for this conference");
+        if (fetched.length === 0) {
+          toast("No papers submitted to this conference yet.", { icon: "📋" });
+        }
       } catch (err) {
         console.error("Error fetching papers:", err.response?.data);
         if (err.response?.status === 401) {
           toast.error("Authentication failed. Please login again.");
         } else if (err.response?.status === 404) {
           setPapers([]);
-          toast.error("No papers found for this conference");
+          toast("No papers submitted to this conference yet.", { icon: "📋" });
         } else {
           toast.error(err.response?.data?.message || "Failed to load papers.");
         }

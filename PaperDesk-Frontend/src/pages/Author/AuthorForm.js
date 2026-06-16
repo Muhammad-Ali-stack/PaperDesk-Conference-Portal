@@ -27,7 +27,6 @@ import {
   X,
   Upload,
   CheckCircle,
-  XCircle,
   FileText,
   Users,
   BookOpen,
@@ -51,8 +50,6 @@ function AuthorForm({ conferenceName }) {
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [abstractWordCount, setAbstractWordCount] = useState(0);
-
-  // Stores the validation_info returned from the backend – used only for error toasts.
   const [validationResult, setValidationResult] = useState(null);
 
   const [countries, setCountries] = useState([]);
@@ -70,7 +67,6 @@ function AuthorForm({ conferenceName }) {
     },
   ]);
 
-  // Fetch country list on mount.
   useEffect(() => {
     const fetchCountries = async () => {
       setLoadingCountries(true);
@@ -93,7 +89,6 @@ function AuthorForm({ conferenceName }) {
     fetchCountries();
   }, []);
 
-  // Fetch conference details by ID.
   useEffect(() => {
     const fetchConference = async () => {
       try {
@@ -109,7 +104,6 @@ function AuthorForm({ conferenceName }) {
     fetchConference();
   }, [id]);
 
-  // Pre-fill first author email from logged-in user.
   useEffect(() => {
     if (auth?.user) {
       setAuthors([
@@ -120,14 +114,13 @@ function AuthorForm({ conferenceName }) {
           country: "",
           affiliation: "",
           webPage: "",
-          corresponding: true,
+          corresponding: false,
         },
       ]);
       setLoading(false);
     }
   }, [auth]);
 
-  // Clear the file input and paper state when the user removes the file.
   const removeFile = () => {
     setSelectedFile(null);
     setPaper(null);
@@ -162,9 +155,9 @@ function AuthorForm({ conferenceName }) {
   };
 
   const handleInputChange = (index, event) => {
-    const { name, value, checked } = event.target;
+    const { name, value } = event.target;
     const newAuthors = [...authors];
-    newAuthors[index][name] = name === "corresponding" ? checked : value;
+    newAuthors[index][name] = value;
     setAuthors(newAuthors);
   };
 
@@ -174,7 +167,14 @@ function AuthorForm({ conferenceName }) {
     setAuthors(newAuthors);
   };
 
-  // Handle PDF file selection.
+  // Ensures only one author can be marked as corresponding at a time.
+  const handleCorrespondingChange = (index) => {
+    setAuthors(authors.map((author, i) => ({
+      ...author,
+      corresponding: i === index ? !author.corresponding : false,
+    })));
+  };
+
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -224,13 +224,19 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    const hasCorresponding = authors.some((a) => a.corresponding);
+    if (!hasCorresponding) {
+      toast.error("Please select one corresponding author.");
+      return;
+    }
+
     const isInvalidRoleForSubmission = auth?.roles?.some(
       (role) =>
-        ["organizer", "reviewer"].includes(role.role) &&
+        role.role === "organizer" &&
         role.conferenceId?.toString() === id?.toString()
     );
     if (isInvalidRoleForSubmission) {
-      toast.error("Paper submission is not allowed for organizers or reviewers.");
+      toast.error("Paper submission is not allowed for organizers.");
       return;
     }
 
@@ -256,18 +262,15 @@ function AuthorForm({ conferenceName }) {
 
       const response = await axios.post("/api/author/submit-paper", formData);
 
-      // Get validation info from response
       const validation = response.data?.data?.validation ?? response.data?.data?.paper?.validation_info ?? null;
       setValidationResult(validation);
 
-      // If PDF validation failed, show error toast and do NOT navigate.
       if (validation && validation.validated === false) {
         toast.error(validation.message || "PDF validation failed. Please check your file.");
-        setValidationResult(null); // Clear so it doesn't render inline
+        setValidationResult(null);
         return;
       }
 
-      // Success: PDF passed validation and paper was saved.
       toast.success(response.data.message);
       await fetchRoles(auth?.user?._id);
       navigate("/userdashboard/papers");
@@ -297,7 +300,6 @@ function AuthorForm({ conferenceName }) {
       <div className="min-h-screen bg-background py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
 
-          {/* Page Header */}
           <div className="text-center mb-12">
             <h1 className="text-4xl font-extrabold text-foreground tracking-tight">
               Submit Your Research
@@ -346,6 +348,11 @@ function AuthorForm({ conferenceName }) {
                       <h3 className="font-bold text-foreground uppercase tracking-wider text-sm">
                         Author Details
                       </h3>
+                      {author.corresponding && (
+                        <Badge variant="default" className="text-xs ml-auto mr-8">
+                          Corresponding Author
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -425,11 +432,22 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     </div>
 
-                    {index === 0 && (
-                      <div className="mt-4 flex items-center space-x-2 px-1">
-                        <Badge variant="default" className="text-xs">Primary Corresponding Author</Badge>
-                      </div>
-                    )}
+                    {/* Corresponding author checkbox — only one can be selected */}
+                    <div className="mt-5 flex items-center gap-2 px-1">
+                      <input
+                        type="checkbox"
+                        id={`corresponding-${index}`}
+                        checked={author.corresponding}
+                        onChange={() => handleCorrespondingChange(index)}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                      <label
+                        htmlFor={`corresponding-${index}`}
+                        className="text-xs font-bold text-muted-foreground uppercase tracking-widest cursor-pointer select-none"
+                      >
+                        Mark as Corresponding Author
+                      </label>
+                    </div>
                   </div>
                 ))}
 
@@ -526,7 +544,6 @@ function AuthorForm({ conferenceName }) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-8">
-
                 {conferenceMode && (
                   <div className="mb-6 bg-blue-50 dark:bg-blue-950/30 border-l-4 border-blue-500 p-4 rounded-r-lg">
                     <div className="flex">
@@ -551,7 +568,6 @@ function AuthorForm({ conferenceName }) {
                   </div>
                 )}
 
-                {/* File drop zone */}
                 <div
                   className={`relative group border-2 border-dashed rounded-2xl p-12 text-center transition-all ${
                     selectedFile
@@ -603,15 +619,12 @@ function AuthorForm({ conferenceName }) {
                           Click to upload PDF
                         </p>
                         <p className="text-sm text-muted-foreground font-medium">
-                          Max 20MB
+                          IEEE Format Preferred
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {/* PDF validation result is no longer displayed on the page.
-                    Errors are shown as toast notifications. */}
               </CardContent>
             </Card>
 

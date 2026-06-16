@@ -5,6 +5,8 @@ import multer from "multer";
  * Uploaded files are available as req.file.buffer before being
  * forwarded to Supabase or the compliance checker.
  * Only application/* MIME types (e.g., PDF) are accepted.
+ * No application-level file size limit is applied here; large PDFs
+ * are handled gracefully by the PDF validator and Supabase storage.
  */
 const multerStorage = multer.memoryStorage();
 
@@ -16,6 +18,10 @@ const multerFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({ storage: multerStorage, fileFilter: multerFilter });
+const upload = multer({
+  storage: multerStorage,
+  fileFilter: multerFilter,
+  // No limits object — removes all file size restrictions at the middleware level.
+});
 
 export default upload;

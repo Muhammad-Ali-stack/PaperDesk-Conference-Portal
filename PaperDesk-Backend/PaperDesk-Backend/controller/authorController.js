@@ -710,51 +710,70 @@ export const getAllResearchPapersController = async (req, res) => {
 // ============================================================================
 // 7. getResearchPaperByIdController
 // ============================================================================
+// Replace this function in your authorController.js
+
 export const getResearchPaperByIdController = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.id || req.user?._id;
+    const userId = req.user._id || req.user.id;
 
     if (!id) {
-      return res.status(400).json({ success: false, message: "Paper ID is required." });
+      return res.status(400).json({ message: "Paper ID is required." });
     }
 
-    const { data: paper, error } = await supabase
+    // Fetch paper WITH author information via junction table
+    const { data: paper, error: paperError } = await supabase
       .from("research_papers")
-      .select(`
-        *,
-        reviews (id, comments_for_authors, technical_confidence, recommendation),
-        paper_authors (
-          author_id,
-          authors (id, first_name, last_name, email, corresponding_author, affiliation, user_id)
-        )
-      `)
+      .select("*, paper_authors(author_id, authors(id, user_id, first_name, email))")
       .eq("id", id)
       .maybeSingle();
 
-    if (error || !paper) {
-      return res.status(404).json({ success: false, message: "Paper not found." });
+    if (paperError || !paper) {
+      console.error(`Paper ${id} not found:`, paperError);
+      return res.status(404).json({ 
+        message: "Paper not found.",
+        paperId: id 
+      });
     }
 
-    // Verify that the requesting user is an author of this paper
-    const isAuthor = paper.paper_authors?.some((pa) => pa.authors?.user_id === userId);
+    // FIXED: Check if user is one of the paper authors
+    // Match by: authors.user_id (which is the user ID from the users table)
+    const isAuthor = paper.paper_authors?.some(
+      (pa) => pa.authors?.user_id === userId
+    );
+
     if (!isAuthor) {
-      return res.status(403).json({ success: false, message: "You are not an author of this paper." });
+      // Check if user is organizer
+      const { data: userRole } = await supabase
+        .from("user_conference_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("conference_id", paper.conference_id)
+        .eq("role", "organizer")
+        .maybeSingle();
+
+      if (!userRole) {
+        return res.status(403).json({
+          message: "You do not have permission to access this paper.",
+        });
+      }
     }
 
     return res.status(200).json({
       success: true,
-      message: "Paper retrieved successfully.",
       data: { paper },
     });
   } catch (error) {
     console.error("getResearchPaperByIdController error:", error);
-    return res.status(500).json({ success: false, message: "Server error.", error: error.message });
+    return res.status(500).json({
+      message: "Error retrieving paper.",
+      error: error.message,
+    });
   }
 };
 
 // ============================================================================
-// 8. getUserConferencePapersController - FIXED
+// 8. getUserConferencePapersController
 // ============================================================================
 export const getUserConferencePapersController = async (req, res) => {
   try {
@@ -764,7 +783,7 @@ export const getUserConferencePapersController = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID and Conference ID are required." });
     }
 
-    // Optionally verify that the user is an author in this conference
+    // Verify that the user is an author in this conference
     const { data: roleCheck } = await supabase
       .from("user_conference_roles")
       .select("role")
@@ -811,7 +830,7 @@ export const getUserConferencePapersController = async (req, res) => {
       return res.status(200).json({ success: true, message: "No papers found.", data: { papers: [] } });
     }
 
-    // Step 3: Fetch full paper details
+    // Step 3: Fetch full paper details including all authors per paper
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select(`
@@ -828,8 +847,18 @@ export const getUserConferencePapersController = async (req, res) => {
         conference_acronym,
         validation_info,
         resubmission_count,
+        organizer_comments_for_authors,
         reviews (comments_for_authors, technical_confidence),
-        organizer_comments_for_authors
+        paper_authors (
+          authors (
+            id,
+            first_name,
+            last_name,
+            email,
+            affiliation,
+            corresponding_author
+          )
+        )
       `)
       .in("id", paperIds);
 
@@ -847,3 +876,5 @@ export const getUserConferencePapersController = async (req, res) => {
     return res.status(500).json({ success: false, message: "Server error.", error: error.message });
   }
 };
+
+

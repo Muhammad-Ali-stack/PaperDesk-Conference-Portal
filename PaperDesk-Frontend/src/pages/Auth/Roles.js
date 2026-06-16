@@ -56,7 +56,7 @@ const RolesPage = () => {
           ) : roles.length === 0 ? (
             <Card>
               <CardContent className="p-12 text-center">
-                <p className="text-muted-foreground">No roles assigned yet.</p>
+                <p className="text-muted-foreground">No roles yet.</p>
               </CardContent>
             </Card>
           ) : (

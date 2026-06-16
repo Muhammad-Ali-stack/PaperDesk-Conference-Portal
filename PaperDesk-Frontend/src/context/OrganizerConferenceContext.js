@@ -20,8 +20,6 @@ export const OrganizerConferenceProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  // Fetch organizer conferences for the current user.
-  // Only updates state if the data actually changed to prevent unnecessary re-renders.
   const fetchConferences = async () => {
     if (!userId) {
       setLoading(false);
@@ -32,22 +30,27 @@ export const OrganizerConferenceProvider = ({ children }) => {
     try {
       const res = await axios.get(`/api/auth/user-conferences/${userId}?role=organizer`);
       const rawList = res.data?.data?.conferences ?? [];
-      const mappedList = rawList.map(conf => ({
-        id: conf.conferenceId,
-        conference_name: conf.conferenceName,
-        acronym: conf.acronym || "",
-        status: conf.status || ""
+      const mappedList = rawList.map(item => ({
+        id: item.conference?.id,
+        conference_name: item.conference?.conference_name,
+        acronym: item.conference?.acronym || "",
+        status: item.conference?.status || ""
       }));
 
-      setConferences(prevConferences => {
-        const hasChanged = JSON.stringify(prevConferences) !== JSON.stringify(mappedList);
-        return hasChanged ? mappedList : prevConferences;
-      });
+      setConferences(mappedList);
 
-      // Keep the saved selection if it still exists in the new list,
-      // otherwise fall back to the first conference.
+      // ── KEY FIX ──────────────────────────────────────────────
+      // Always sync selectedConference with the fresh data from
+      // the server. This ensures name/acronym updates are reflected
+      // immediately after an edit without waiting for the next poll.
       setSelectedConference(prev => {
-        if (prev && mappedList.some(c => c.id === prev.id)) return prev;
+        if (!prev) return mappedList[0] ?? null;
+        const freshVersion = mappedList.find(c => c.id === prev.id);
+        if (freshVersion) {
+          // Update localStorage with fresh data too
+          localStorage.setItem("organizer_selected_conference", JSON.stringify(freshVersion));
+          return freshVersion;
+        }
         return mappedList[0] ?? null;
       });
     } catch (err) {
@@ -58,28 +61,20 @@ export const OrganizerConferenceProvider = ({ children }) => {
     }
   };
 
-  // Fetch on mount and whenever the logged-in user changes.
   useEffect(() => {
     fetchConferences();
   }, [userId]);
 
-  // Poll every 10 minutes for conference updates.
-  // Skips the refetch while the dropdown is open to avoid UI stuttering.
   useEffect(() => {
     if (!userId) return;
-
-    fetchConferences();
-
     const pollInterval = setInterval(() => {
       if (!isDropdownOpen) {
         fetchConferences();
       }
     }, 600000);
-
     return () => clearInterval(pollInterval);
   }, [userId, isDropdownOpen]);
 
-  // Persist the selected conference to localStorage so it survives page reloads.
   const selectConference = (conf) => {
     setSelectedConference(conf);
     localStorage.setItem("organizer_selected_conference", JSON.stringify(conf));

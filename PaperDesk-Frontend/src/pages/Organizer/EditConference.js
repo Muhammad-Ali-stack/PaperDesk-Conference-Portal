@@ -1,4 +1,3 @@
-// EditConference.js
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -29,7 +28,7 @@ const SectionTitle = ({ children }) => (
 const EditConference = () => {
   const [auth] = useAuth();
   const navigate = useNavigate();
-  const { selectedConference, loading: loadingConferences } = useOrganizerConference();
+  const { selectedConference, loading: loadingConferences, refetchConferences } = useOrganizerConference();
 
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -57,7 +56,6 @@ const EditConference = () => {
   const [loadingCountries, setLoadingCountries] = useState(true);
   const [loadingCities, setLoadingCities] = useState(false);
 
-  // Load countries on mount
   useEffect(() => {
     const fetchCountries = async () => {
       setLoadingCountries(true);
@@ -96,7 +94,6 @@ const EditConference = () => {
     }
   };
 
-  // Load selected conference details when it changes
   useEffect(() => {
     if (!selectedConference) {
       setFormData({
@@ -142,7 +139,7 @@ const EditConference = () => {
       }
     };
     fetchConferenceDetails();
-  }, [selectedConference]);
+  }, [selectedConference?.id]); // ← only re-run when the ID changes, not the whole object
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -156,7 +153,7 @@ const EditConference = () => {
 
   const validateDates = () => {
     const { start_date, end_date, abstract_deadline, submission_deadline } = formData;
-    const today = new Date(); today.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(start_date), end = new Date(end_date);
     const abstract = new Date(abstract_deadline), submission = new Date(submission_deadline);
     if (!start_date || !end_date || !abstract_deadline || !submission_deadline) {
@@ -175,8 +172,7 @@ const EditConference = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedConference) { toast.error("No conference selected. Please select one from the sidebar."); return; }
-
+    if (!selectedConference) { toast.error("No conference selected."); return; }
     if (!formData.conference_name.trim() || !formData.acronym.trim() || !formData.start_date || !formData.end_date) {
       toast.error("Conference name, acronym, start and end dates are required.");
       return;
@@ -208,6 +204,10 @@ const EditConference = () => {
       Object.keys(payload).forEach(key => (payload[key] === undefined || payload[key] === "") && delete payload[key]);
 
       await axios.put(`/api/conference/update-conference/${selectedConference.id}`, payload);
+
+      // Refresh context so sidebar and all other components get the updated name immediately
+      await refetchConferences();
+
       toast.success("Conference updated successfully.");
       navigate("/userdashboard/organizer-dashboard");
     } catch (err) {
@@ -218,7 +218,6 @@ const EditConference = () => {
     }
   };
 
-  // Guard: wait for auth and conference context to be ready
   if (!auth || !auth.user) {
     return (
       <Layout title="PaperDesk - Edit Conference">
@@ -240,7 +239,6 @@ const EditConference = () => {
             </p>
           </div>
 
-          {/* Show current selection without a change button */}
           <Card className="shadow-sm">
             <CardHeader>
               <CardTitle className="text-base">Current Conference</CardTitle>
@@ -274,7 +272,7 @@ const EditConference = () => {
                   </div>
                 ) : (
                   <form onSubmit={handleSubmit} className="space-y-8">
-                    {/* Basic Information */}
+
                     <div>
                       <SectionTitle>Basic Information</SectionTitle>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -293,7 +291,6 @@ const EditConference = () => {
                       </div>
                     </div>
 
-                    {/* Location */}
                     <div>
                       <SectionTitle>Location</SectionTitle>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -348,7 +345,6 @@ const EditConference = () => {
                       </div>
                     </div>
 
-                    {/* Dates */}
                     <div>
                       <SectionTitle>Dates</SectionTitle>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -363,7 +359,6 @@ const EditConference = () => {
                       </div>
                     </div>
 
-                    {/* Research Areas */}
                     <div>
                       <SectionTitle>Research Areas</SectionTitle>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -382,7 +377,6 @@ const EditConference = () => {
                       </div>
                     </div>
 
-                    {/* Submission Settings */}
                     <div>
                       <SectionTitle>Submission Settings</SectionTitle>
                       <div className="rounded-lg border bg-muted/30 p-5 space-y-4">

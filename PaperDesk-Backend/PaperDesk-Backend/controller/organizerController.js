@@ -211,14 +211,33 @@ export const assignPapersToReviewersController = async (req, res) => {
       }
     });
 
+    // Build a per-paper set of author user_ids to prevent reviewer-author conflicts.
+    // A reviewer who is also an author/co-author of a paper MUST NOT be assigned to it.
+    const { data: allPaperAuthors } = await supabase
+      .from("paper_authors")
+      .select("paper_id, authors!author_id(user_id)")
+      .in("paper_id", papers.map((p) => p.id));
+
+    const paperAuthorUserIds = new Map();
+    (allPaperAuthors || []).forEach(({ paper_id, authors }) => {
+      if (!paperAuthorUserIds.has(paper_id)) {
+        paperAuthorUserIds.set(paper_id, new Set());
+      }
+      if (authors?.user_id) {
+        paperAuthorUserIds.get(paper_id).add(authors.user_id);
+      }
+    });
+
     // Returns the first reviewer whose expertise overlaps the paper keywords,
-    // is under the assignment cap, and has not already been assigned to this paper.
-    const findMatchingReviewer = (keywords, assignedReviewers) => {
+    // is under the assignment cap, has not already been assigned to this paper,
+    // and is not an author/co-author of this paper (conflict of interest guard).
+    const findMatchingReviewer = (keywords, assignedReviewers, authorIds) => {
       for (const reviewer of reviewers) {
         if (
           reviewer.expertise.some((exp) => keywords.includes(exp)) &&
           reviewerAssignmentCount[reviewer.userId] < MAX_PAPERS_PER_REVIEWER &&
-          !assignedReviewers.includes(reviewer.userId)
+          !assignedReviewers.includes(reviewer.userId) &&
+          !authorIds.has(reviewer.userId)
         ) {
           return reviewer;
         }
@@ -240,6 +259,7 @@ export const assignPapersToReviewersController = async (req, res) => {
       const keywords = paper.keywords || [];
       const alreadyAssigned = assignmentsByPaperId.get(paper.id) || [];
       const currentCount = alreadyAssigned.length;
+      const authorIds = paperAuthorUserIds.get(paper.id) || new Set();
 
       // Paper already has the maximum number of reviewers — skip it.
       if (currentCount >= REVIEWERS_PER_PAPER) continue;
@@ -249,14 +269,16 @@ export const assignPapersToReviewersController = async (req, res) => {
 
       while (assignedReviewers.length < REVIEWERS_PER_PAPER) {
         // Try to find a reviewer with matching expertise first.
-        let assignedReviewer = findMatchingReviewer(keywords, assignedReviewers);
+        let assignedReviewer = findMatchingReviewer(keywords, assignedReviewers, authorIds);
 
         // Fall back to any available reviewer if no expertise match is found.
+        // Still enforces the conflict-of-interest guard (authorIds check).
         if (!assignedReviewer) {
           assignedReviewer = reviewers.find(
             (r) =>
               reviewerAssignmentCount[r.userId] < MAX_PAPERS_PER_REVIEWER &&
-              !assignedReviewers.includes(r.userId)
+              !assignedReviewers.includes(r.userId) &&
+              !authorIds.has(r.userId)
           );
         }
 
@@ -754,6 +776,27 @@ export const manuallyAssignPaperController = async (req, res) => {
 
     if (!paper) {
       return res.status(404).json({ success: false, message: "Paper not found." });
+    }
+
+    // Conflict-of-interest guard: a reviewer who is also an author or
+    // co-author of the paper MUST NOT be assigned to review it.
+    const { data: paperAuthorRows } = await supabase
+      .from("paper_authors")
+      .select("authors!author_id(user_id)")
+      .eq("paper_id", paperId);
+
+    const authorUserIdSet = new Set(
+      (paperAuthorRows || []).map((pa) => pa.authors?.user_id).filter(Boolean)
+    );
+
+    const conflictingIds = uniqueReviewerIds.filter((id) => authorUserIdSet.has(id));
+    if (conflictingIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot assign reviewer(s) who are authors or co-authors of this paper. Conflict of interest detected.",
+        data: { conflictingReviewerIds: conflictingIds },
+      });
     }
 
     let resolvedPlagiarismScore = paper.organizer_plagiarism_score;

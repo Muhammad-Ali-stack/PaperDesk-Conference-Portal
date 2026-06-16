@@ -98,10 +98,6 @@ const ReviewForm = () => {
       toast.error("Comments for authors are required.");
       return false;
     }
-    if (!formData.commentsForOrganizers.trim()) {
-      toast.error("Comments for Editor are required.");
-      return false;
-    }
     return true;
   };
 
@@ -233,7 +229,9 @@ const ReviewForm = () => {
 
             {/* Overall Recommendation */}
             <div className="space-y-4">
-              <label className="text-sm font-bold uppercase tracking-widest">Overall Recommendation</label>
+              <label className="text-sm font-bold uppercase tracking-widest">
+                Overall Recommendation <span className="text-destructive">*</span>
+              </label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {["Accept", "Accept with minor correction", "Reject"].map((option) => (
                   <label
@@ -262,7 +260,9 @@ const ReviewForm = () => {
             {/* Comments */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-2">
-                <label className="text-sm font-bold uppercase tracking-widest ml-1">Comments for Authors</label>
+                <label className="text-sm font-bold uppercase tracking-widest ml-1">
+                  Comments for Authors <span className="text-destructive">*</span>
+                </label>
                 <Textarea
                   name="commentsForAuthors"
                   value={formData.commentsForAuthors}
@@ -272,7 +272,9 @@ const ReviewForm = () => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-bold uppercase tracking-widest ml-1">Comments for Editor</label>
+                <label className="text-sm font-bold uppercase tracking-widest ml-1">
+                  Comments for Editor
+                </label>
                 <Textarea
                   name="commentsForOrganizers"
                   value={formData.commentsForOrganizers}

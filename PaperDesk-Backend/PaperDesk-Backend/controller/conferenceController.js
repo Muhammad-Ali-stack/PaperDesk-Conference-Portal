@@ -37,8 +37,7 @@ export const sendOrganizerInviteController = async (req, res) => {
     });
 
     // Construct invitation link with token
-    const inviteLink = `${process.env.ORGANIZER_INVITE_URL}/register?role=organizer&token=${inviteToken}`;
-
+    const inviteLink = `${process.env.ORGANIZER_INVITE_URL}/login?role=organizer&token=${inviteToken}`;
     // Build HTML email content
     const emailHtml = `
       <!DOCTYPE html>

@@ -4,7 +4,9 @@ import {
   registerController,
   loginController,
   verifyOtpController,
-  forgotPasswordController,
+  refreshTokenController,
+  logoutController,
+  logoutAllDevicesController,
   updateProfileController,
   getUserRolesController,
   getUserConferencesByRole,
@@ -20,24 +22,87 @@ import {
 
 const router = express.Router();
 
-// Rate limiter: 10 requests per 15 minutes for authentication routes
+// ── Rate limiters ──────────────────────────────────────────────────────────────
+
+/** General auth rate limiter: 15 requests per 15 minutes. */
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // limit each IP to 15 requests per windowMs
-  message: {
-    success: false,
-    message: "Too many requests, please try again later.",
-  },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { success: false, message: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// Apply rate limiter to authentication endpoints
+/** Strict OTP request limiter: 5 OTP sends per 10 minutes per IP. */
+const otpRequestLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: "Too many OTP requests. Please wait before requesting another code." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** OTP verify limiter: 10 attempts per 10 minutes per IP. */
+const otpVerifyLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: "Too many verification attempts. Please request a new code." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ── Public routes ──────────────────────────────────────────────────────────────
+
 router.post("/register", authLimiter, registerController);
-router.post("/login", authLimiter, loginController);
-router.post("/verify-otp", authLimiter, verifyOtpController);
-router.post("/forgot-password", authLimiter, forgotPasswordController);
+
+/**
+ * POST /api/auth/login
+ * Step 1 of the auth flow.
+ * - Checks for a valid refresh token cookie → if trusted device, returns access token directly.
+ * - Otherwise sends an OTP to the user's email.
+ * Body: { email, [role], [conferenceId], [invitationToken], [expertise] }
+ */
+router.post("/login", otpRequestLimiter, loginController);
+
+/**
+ * POST /api/auth/verify-otp
+ * Step 2 of the auth flow (first-time / new device only).
+ * Validates the hashed OTP, issues a 15-min access token, sets
+ * a 30-day HttpOnly refresh token cookie, and records the trusted device.
+ * Body: { userId, otp }
+ */
+router.post("/verify-otp", otpVerifyLimiter, verifyOtpController);
+
+/**
+ * POST /api/auth/refresh
+ * Silent re-authentication for trusted devices.
+ * Reads the refresh token from the HttpOnly cookie, validates it against
+ * trusted_devices, rotates the refresh token, and returns a new 15-min
+ * access token. No OTP required.
+ * Body: { userId }
+ */
+router.post("/refresh", authLimiter, refreshTokenController);
+
+/**
+ * POST /api/auth/logout
+ * Normal logout: clears the refresh token cookie but preserves the
+ * trusted_devices record so the next login from the same device is seamless.
+ */
+router.post("/logout", logoutController);
+
+/**
+ * POST /api/auth/logout-all
+ * Logout from all devices: deletes ALL trusted_devices records for the
+ * authenticated user and clears the cookie. OTP will be required on the
+ * next login from every device.
+ * Requires: valid access token (Bearer).
+ */
+router.post("/logout-all", requireLogin, logoutAllDevicesController);
+
+
 router.get("/invitation/:token", getInvitationByTokenController);
+
+// ── Protected routes ───────────────────────────────────────────────────────────
 
 router.get("/user-auth", requireLogin, (req, res) => {
   res.status(200).json({ ok: true });
@@ -62,5 +127,6 @@ router.get("/author-dashboard/:conferenceId", isAuthor, (req, res) => {
 router.put("/profile", requireLogin, updateProfileController);
 router.get("/user-roles/:userId", getUserRolesController);
 router.get("/conferences/:userId", getUserConferencesByRole);
-router.get("/user-conferences/:userId", getUserConferencesByRole); 
+router.get("/user-conferences/:userId", getUserConferencesByRole);
+
 export default router;

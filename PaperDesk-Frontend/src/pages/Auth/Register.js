@@ -9,7 +9,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Loader2, Eye, EyeOff, ChevronDown, Search, CheckCircle2, X } from "lucide-react";
+import { Loader2, ChevronDown, Search, CheckCircle2, X } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -40,76 +40,7 @@ const PHONE_HINTS = {
   SG:{min:8,max:8},  NZ:{min:8,max:9}, TH:{min:9,max:9},
 };
 
-// ─── Password rules ────────────────────────────────────────────────────────────
-const passwordRules = {
-  required: "Password is required.",
-  minLength: { value: 8, message: "At least 8 characters required." },
-  validate: {
-    hasUppercase: (v) => /[A-Z]/.test(v) || "Add an uppercase letter.",
-    hasLowercase: (v) => /[a-z]/.test(v) || "Add a lowercase letter.",
-    hasNumber: (v)    => /[0-9]/.test(v) || "Add a number.",
-  },
-};
-
-const confirmPasswordRules = (pw) => ({
-  required: "Please confirm your password.",
-  validate: (v) => v === pw || "Passwords don't match.",
-});
-
-// ─── PasswordStrength ──────────────────────────────────────────────────────────
-const PasswordStrength = ({ password }) => {
-  if (!password) return null;
-  const checks = [
-    { label: "8+ chars",  pass: password.length >= 8 },
-    { label: "Uppercase", pass: /[A-Z]/.test(password) },
-    { label: "Lowercase", pass: /[a-z]/.test(password) },
-    { label: "Number",    pass: /[0-9]/.test(password) },
-  ];
-  const passed = checks.filter((c) => c.pass).length;
-  const barColor =
-    passed <= 1 ? "bg-red-500" :
-    passed === 2 ? "bg-amber-400" :
-    passed === 3 ? "bg-blue-500" : "bg-emerald-500";
-  const label =
-    passed <= 1 ? "Weak" :
-    passed === 2 ? "Fair" :
-    passed === 3 ? "Good" : "Strong";
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1 flex-1">
-          {[0,1,2,3].map((i) => (
-            <div
-              key={i}
-              className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
-                i < passed ? barColor : "bg-muted"
-              }`}
-            />
-          ))}
-        </div>
-        <span className={`text-[11px] font-semibold w-12 text-right ${
-          passed <= 1 ? "text-red-500" :
-          passed === 2 ? "text-amber-500" :
-          passed === 3 ? "text-blue-500" : "text-emerald-500"
-        }`}>{label}</span>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {checks.map((c, i) => (
-          <span key={i} className={`text-[11px] flex items-center gap-1 ${
-            c.pass ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
-          }`}>
-            {c.pass
-              ? <CheckCircle2 className="h-3 w-3" />
-              : <span className="h-3 w-3 rounded-full border border-current inline-block" />}
-            {c.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// ─── PhoneField — the main star ────────────────────────────────────────────────
+// ─── PhoneField ────────────────────────────────────────────────────────────────
 const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, register, errors }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -122,7 +53,6 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
       c.dial.includes(search.replace(/\D/g, ""))
   );
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -134,7 +64,6 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Focus search on open
   useEffect(() => {
     if (open) setTimeout(() => searchRef.current?.focus(), 50);
   }, [open]);
@@ -233,7 +162,7 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
                 <input
                   ref={searchRef}
                   type="text"
-                  placeholder="Search by country code…"
+                  placeholder="Search by country or code…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="
@@ -327,7 +256,7 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
 // ─── LocationFields ────────────────────────────────────────────────────────────
 const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountryChange,
   setValue, register, errors, watch }) => {
-  const [citiesData, setCitiesData]     = useState([]);
+  const [citiesData, setCitiesData]       = useState([]);
   const [citiesLoading, setCitiesLoading] = useState(false);
   const watchCountry = watch("country");
 
@@ -350,7 +279,6 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
     }
   }, [setValue]);
 
-  // When country dropdown changes, sync and fetch cities
   useEffect(() => {
     if (!watchCountry) return;
     const match = countries.find((c) => c.name === watchCountry);
@@ -467,13 +395,11 @@ const Register = () => {
   const [expertiseOptions, setExpertiseOptions]         = useState([]);
 
   // UI state
-  const [isSubmitting, setIsSubmitting]             = useState(false);
-  const [showPassword, setShowPassword]             = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [emailExistsError, setEmailExistsError]     = useState(false);
+  const [isSubmitting, setIsSubmitting]       = useState(false);
+  const [emailExistsError, setEmailExistsError] = useState(false);
 
   // Countries from API
-  const [countries, setCountries]           = useState([]);
+  const [countries, setCountries]               = useState([]);
   const [countriesLoading, setCountriesLoading] = useState(true);
   const [selectedCountry, setSelectedCountry]   = useState(null);
 
@@ -484,10 +410,9 @@ const Register = () => {
     formState: { errors },
   } = useForm({ defaultValues: { expertise: [], phone: "", country: "", city: "" } });
 
-  const navigate      = useNavigate();
-  const passwordValue = watch("password", "");
+  const navigate = useNavigate();
 
-  // ── Fetch countries from annexare (GitHub raw, CORS-open) ─────────────────
+  // ── Fetch countries ────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchCountries = async () => {
       try {
@@ -517,7 +442,7 @@ const Register = () => {
         const pk = parsed.find((c) => c.code === "PK") || parsed[0];
         setSelectedCountry(pk);
         if (pk) setValue("country", pk.name);
-      } catch (err) {
+      } catch {
         toast.error("Could not load country list. Check your connection.");
       } finally {
         setCountriesLoading(false);
@@ -526,7 +451,7 @@ const Register = () => {
     fetchCountries();
   }, [setValue]);
 
-  // ── Fetch invite token ────────────────────────────────────────────────────
+  // ── Fetch invite token ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
     const fetchInvite = async () => {
@@ -555,24 +480,27 @@ const Register = () => {
     setValue("city", "");
   }, [setValue]);
 
-  // ── Submit ────────────────────────────────────────────────────────────────
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     setEmailExistsError(false);
     try {
       const fullPhone = `${selectedCountry?.dial || ""}${digitsOnly(data.phone)}`;
       const payload = {
-        ...data,
+        name:            data.name,
+        email:           data.email,
         phone:           fullPhone,
+        address:         `${data.city}, ${data.country}`,
+        expertise:       data.expertise,
         role:            inviteRole || undefined,
         conferenceId:    inviteConferenceId || undefined,
         conferenceName:  inviteConferenceName || undefined,
         invitationToken: token || undefined,
       };
-      delete payload.confirmPassword;
+
       const res = await axios.post("/api/auth/register", payload);
       if (res.data.success) {
-        toast.success("Account created!");
+        toast.success("Account created! Please sign in.");
         navigate("/login");
       } else {
         toast.error(res.data.message || "Registration failed.");
@@ -596,7 +524,7 @@ const Register = () => {
 
   const fieldError = (name) => errors[name]?.message;
 
-  // ─── Loading skeleton ─────────────────────────────────────────────────────
+  // ─── Loading skeleton ──────────────────────────────────────────────────────
   if (tokenLoading) {
     return (
       <Layout title="PaperDesk - Register">
@@ -608,7 +536,7 @@ const Register = () => {
             </div>
             <Card className="shadow-lg">
               <CardContent className="p-8 space-y-5">
-                {[...Array(6)].map((_, i) => (
+                {[...Array(5)].map((_, i) => (
                   <div key={i} className="space-y-1.5">
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-10 w-full rounded-md" />
@@ -623,7 +551,7 @@ const Register = () => {
     );
   }
 
-  // ─── Invalid token ────────────────────────────────────────────────────────
+  // ─── Invalid token ─────────────────────────────────────────────────────────
   if (token && !tokenValid) {
     return (
       <Layout title="PaperDesk - Invalid Link">
@@ -647,7 +575,7 @@ const Register = () => {
     );
   }
 
-  // ─── Main form ────────────────────────────────────────────────────────────
+  // ─── Main form ─────────────────────────────────────────────────────────────
   return (
     <Layout title="PaperDesk - Register">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
@@ -731,57 +659,7 @@ const Register = () => {
                   )}
                 </div>
 
-                {/* Password */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      {...register("password", passwordRules)}
-                      className={fieldError("password") ? "border-destructive pr-10" : "pr-10"}
-                    />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={showPassword ? "Hide password" : "Show password"}>
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {fieldError("password")
-                    ? <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                        <X className="h-3 w-3" />{fieldError("password")}
-                      </p>
-                    : <PasswordStrength password={passwordValue} />
-                  }
-                </div>
-
-                {/* Confirm password */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm-password">Confirm password</Label>
-                  <div className="relative">
-                    <Input
-                      id="confirm-password"
-                      type={showConfirmPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      {...register("confirmPassword", confirmPasswordRules(passwordValue))}
-                      className={fieldError("confirmPassword") ? "border-destructive pr-10" : "pr-10"}
-                    />
-                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}>
-                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {fieldError("confirmPassword") && (
-                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                      <X className="h-3 w-3" />{fieldError("confirmPassword")}
-                    </p>
-                  )}
-                </div>
-
-                {/* ── Phone field (the premium dial-code picker) ── */}
-                {/* Positioned relative so the dropdown is scoped correctly */}
+                {/* Phone */}
                 <div className="relative">
                   <PhoneField
                     countries={countries}
@@ -793,7 +671,7 @@ const Register = () => {
                   />
                 </div>
 
-                {/* ── Country + City ── */}
+                {/* Country + City */}
                 <LocationFields
                   countries={countries}
                   countriesLoading={countriesLoading}
@@ -820,28 +698,6 @@ const Register = () => {
                     </div>
                   </div>
                 )}
-
-                {/* Recovery key */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="recovery_key">Secret recovery key</Label>
-                  <Input
-                    id="recovery_key"
-                    placeholder="A memorable phrase for account recovery"
-                    {...register("recovery_key", {
-                      required: "A recovery key is required.",
-                      minLength: { value: 6, message: "At least 6 characters." },
-                    })}
-                    className={fieldError("recovery_key") ? "border-destructive" : ""}
-                  />
-                  {fieldError("recovery_key")
-                    ? <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                        <X className="h-3 w-3" />{fieldError("recovery_key")}
-                      </p>
-                    : <p className="text-xs text-muted-foreground">
-                        Used to reset your password if you're ever locked out.
-                      </p>
-                  }
-                </div>
 
                 {/* Submit */}
                 <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">

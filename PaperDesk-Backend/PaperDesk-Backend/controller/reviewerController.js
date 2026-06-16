@@ -147,7 +147,7 @@ export const reviewerLoginController = async (req, res) => {
       .maybeSingle();
 
     if (error || !reviewer) {
-      return res.status(404).json({ success: false, message: "Email is not registered." });
+      return res.status(404).json({ success: false, message: "Email is not registered, please sign up first." });
     }
 
     const match = await comparePassword(password, reviewer.password);
@@ -214,15 +214,22 @@ export const checkReviewerDetailsController = async (req, res) => {
  * Returns all users who have accepted a reviewer role for a given conference.
  * Uses two separate queries instead of a join to avoid FK dependency issues.
  *
- * @route GET /api/reviewer/accepted/:conferenceId
+ * Optional query param: paperId
+ *   When provided, each reviewer entry includes an `isConflict` flag (true if
+ *   the reviewer is listed as an author or co-author of that paper). The frontend
+ *   should grey out or disable conflicted reviewers in the assignment modal.
+ *
+ * @route GET /api/reviewer/:conferenceId/reviewers[?paperId=<uuid>]
  * @param {string} req.params.conferenceId
- * @returns {200} Array of reviewer objects.
+ * @param {string} [req.query.paperId] - Optional paper UUID to check conflicts.
+ * @returns {200} Array of reviewer objects, each with optional isConflict flag.
  * @returns {400} Conference ID missing.
  * @returns {500} Server error.
  */
 export const getAcceptedReviewersController = async (req, res) => {
   try {
     const { conferenceId } = req.params;
+    const { paperId } = req.query;
 
     if (!conferenceId) {
       return res.status(400).json({ error: "Conference ID is required." });
@@ -255,8 +262,23 @@ export const getAcceptedReviewersController = async (req, res) => {
       return res.status(500).json({ success: false, error: "Error fetching user details." });
     }
 
+    // Step 3 (optional) — if paperId is supplied, identify which reviewers are
+    // also authors or co-authors of that paper. These represent conflicts of
+    // interest and MUST NOT be assigned to review the paper.
+    let conflictUserIds = new Set();
+    if (paperId) {
+      const { data: paperAuthorRows } = await supabase
+        .from("paper_authors")
+        .select("authors!author_id(user_id)")
+        .eq("paper_id", paperId);
+
+      conflictUserIds = new Set(
+        (paperAuthorRows || []).map((pa) => pa.authors?.user_id).filter(Boolean)
+      );
+    }
+
     // Shape the response to match what the frontend expects:
-    // [{ user_id, users: { id, name, email } }]
+    // [{ user_id, users: { id, name, email }, isConflict }]
     const reviewers = (users || []).map((user) => ({
       user_id: user.id,
       users: {
@@ -264,6 +286,7 @@ export const getAcceptedReviewersController = async (req, res) => {
         name: user.name,
         email: user.email,
       },
+      isConflict: conflictUserIds.has(user.id),
     }));
 
     return res.status(200).json({ success: true, data: reviewers });
