@@ -100,7 +100,7 @@ const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptorId);
   }, []);
 
-  // ── NEW: Proactive token refresh every 13 minutes ───────────
+  // ── Proactive token refresh every 13 minutes ────────────────
   // Access token expires in 15 min, so we refresh 2 min early
   // to prevent logout during inactivity.
   useEffect(() => {
@@ -141,7 +141,7 @@ const AuthProvider = ({ children }) => {
     }, REFRESH_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, []); // runs once on mount
+  }, []);
 
   const fetchRoles = async (userId, silent = false) => {
     try {
@@ -186,32 +186,6 @@ const AuthProvider = ({ children }) => {
       }
 
       if (parseData?.user?._id) {
-        // NEW: Immediately refresh token on page load so we always
-        // start with a fresh token (avoids logging out if the stored
-        // token is already close to its 15-min expiry).
-        if (parseData?.token) {
-          axios
-            .post("/api/auth/refresh", { userId: parseData.user._id })
-            .then(({ data: refreshData }) => {
-              setAuth((prev) => {
-                const updated = {
-                  ...prev,
-                  token: refreshData.data.token,
-                  user: refreshData.data.user ?? prev.user,
-                  roles: refreshData.data.roles ?? prev.roles,
-                };
-                localStorage.setItem("auth", JSON.stringify(updated));
-                return updated;
-              });
-              axios.defaults.headers.common[
-                "Authorization"
-              ] = `Bearer ${refreshData.data.token}`;
-            })
-            .catch(() => {
-              // Let the interceptor handle it if needed
-            });
-        }
-
         fetchRoles(parseData.user._id, hasCachedRoles);
       } else {
         setRolesLoaded(true);
