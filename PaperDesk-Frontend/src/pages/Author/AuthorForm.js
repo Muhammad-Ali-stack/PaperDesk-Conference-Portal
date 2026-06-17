@@ -230,13 +230,10 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
-    const isInvalidRoleForSubmission = auth?.roles?.some(
-      (role) =>
-        role.role === "organizer" &&
-        role.conferenceId?.toString() === id?.toString()
-    );
-    if (isInvalidRoleForSubmission) {
-      toast.error("Paper submission is not allowed for Editors.");
+    // Block organizers (Editors) from submitting papers across any conference
+    const isOrganizer = auth?.roles?.some((role) => role.role === "organizer");
+    if (isOrganizer) {
+      toast.error("Editors are not allowed to submit papers.");
       return;
     }
 

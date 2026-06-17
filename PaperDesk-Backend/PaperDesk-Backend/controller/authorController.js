@@ -9,6 +9,7 @@ const getSupabasePublicUrl = (bucket, filePath) => {
   return `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 };
 
+
 export const submitPaperController = async (req, res) => {
   try {
     const {
@@ -22,7 +23,7 @@ export const submitPaperController = async (req, res) => {
     } = req.body;
     let { authors } = req.body;
 
-    // Validate required fields
+    // Validate required fields FIRST
     if (!userId) {
       return res.status(400).json({ success: false, message: "User ID is required." });
     }
@@ -31,6 +32,20 @@ export const submitPaperController = async (req, res) => {
     }
     if (!title || !abstract || !keywords || !conferenceAcronym) {
       return res.status(400).json({ success: false, message: "All paper details are required." });
+    }
+
+    // Block organizers (Editors) from submitting — after userId is confirmed present
+    const { data: userRoles } = await supabase
+      .from("user_conference_roles")
+      .select("role")
+      .eq("user_id", userId);
+
+    const isOrganizer = (userRoles || []).some((r) => r.role === "organizer");
+    if (isOrganizer) {
+      return res.status(403).json({
+        success: false,
+        message: "Editors are not permitted to submit papers.",
+      });
     }
 
     // Parse authors if sent as JSON string
@@ -241,8 +256,8 @@ export const submitPaperController = async (req, res) => {
                   <td style="background-color:#4B707A;padding:32px 40px;text-align:center;">
                     <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">PaperDesk</h1>
                     <p style="margin:6px 0 0;color:#d1e8eb;font-size:13px;">Conference Management System</p>
-                   </td>
-                 </tr>
+                  </td>
+                </tr>
                 <tr>
                   <td style="padding:40px 40px 32px;">
                     <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:22px;font-weight:700;">Paper Submitted Successfully</h2>
@@ -254,17 +269,16 @@ export const submitPaperController = async (req, res) => {
                       <p style="margin:0;font-size:14px;color:#374151;"><strong>Status:</strong> Pending Review</p>
                     </div>
                     <p style="margin:0;font-size:13px;color:#9ca3af;">You will receive further updates as your paper progresses through the review process.</p>
-                   </td>
-                 </tr>
+                  </td>
+                </tr>
                 <tr>
                   <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
                     <p style="margin:0;font-size:12px;color:#9ca3af;">Copyright ${new Date().getFullYear()} PaperDesk - Conference Management System</p>
-                   </td>
-                 </tr>
-               </table>
-             </td>
-           </tr>
-         </table>
+                  </td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
         </body>
         </html>
       `;
