@@ -236,7 +236,7 @@ function AuthorForm({ conferenceName }) {
         role.conferenceId?.toString() === id?.toString()
     );
     if (isInvalidRoleForSubmission) {
-      toast.error("Paper submission is not allowed for organizers.");
+      toast.error("Paper submission is not allowed for Editors.");
       return;
     }
 
