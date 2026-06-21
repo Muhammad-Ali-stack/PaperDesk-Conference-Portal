@@ -9,6 +9,95 @@ import { fromZonedTime } from "date-fns-tz"; // npm install date-fns date-fns-tz
 const proceedingsQueue = new PQueue({ concurrency: 2 });
 
 /**
+ * Sends an assignment notification email directly to a reviewer.
+ * Includes a direct link to the paper in the reviewer portal.
+ * Uses the GMAIL_REVIEWER_USER/PASS transporter (type: "paper").
+ * Fire-and-forget — failures are swallowed so they never block the response.
+ *
+ * @param {object} opts
+ * @param {string} opts.reviewerEmail  - Recipient email address.
+ * @param {string} opts.reviewerName   - Reviewer's display name.
+ * @param {string} opts.paperTitle     - Title of the assigned paper.
+ * @param {string} opts.paperId        - UUID of the paper (used to build the link).
+ * @param {string} opts.conferenceName - Human-readable conference name.
+ * @param {string|null} opts.dueDate   - ISO due date string (UTC), or null.
+ */
+const sendReviewerAssignmentEmail = async ({ reviewerEmail, reviewerName, paperTitle, paperId, conferenceName, dueDate }) => {
+  try {
+    const baseUrl = process.env.BASE_URL || "";
+    const paperLink = `${baseUrl}/reviewer/papers?paperId=${paperId}`;
+    const dueLine = dueDate
+      ? `<p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Review Due:</strong> ${new Date(dueDate).toUTCString()}</p>`
+      : "";
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background-color:#4B707A;padding:32px 40px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:1px;">PaperDesk</h1>
+              <p style="margin:6px 0 0;color:#d1e8eb;font-size:13px;">Conference Management System</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 40px 32px;">
+              <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:22px;font-weight:700;">New Paper Assigned for Review</h2>
+              <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">
+                Dear ${reviewerName || "Reviewer"},<br/><br/>
+                A new paper has been assigned to you for review. Please log in to the portal to access the paper and submit your review before the deadline.
+              </p>
+              <div style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px 20px;margin-bottom:28px;">
+                <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#4B707A;text-transform:uppercase;letter-spacing:0.5px;">Assignment Details</p>
+                <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Paper Title:</strong> ${paperTitle}</p>
+                <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Conference:</strong> ${conferenceName}</p>
+                ${dueLine}
+              </div>
+              <div style="text-align:center;margin-bottom:28px;">
+                <a href="${paperLink}"
+                   style="display:inline-block;background-color:#4B707A;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:700;letter-spacing:0.3px;">
+                  View &amp; Review Paper
+                </a>
+              </div>
+              <p style="margin:0;font-size:13px;color:#9ca3af;">
+                If the button does not work, copy and paste this link into your browser:<br/>
+                <a href="${paperLink}" style="color:#4B707A;">${paperLink}</a>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `.trim();
+
+    await sendMail({
+      type: "paper",
+      to: reviewerEmail,
+      subject: `New Paper Assigned for Review: ${paperTitle}`,
+      html,
+    });
+  } catch (_) {
+    // Swallow email errors — they must never block the main response.
+  }
+};
+
+/**
  * Helper: sends an email notification to all authors of a paper when its status changes.
  * This is fire-and-forget — failures are silently swallowed so they never block the response.
  *
@@ -300,6 +389,18 @@ export const assignPapersToReviewersController = async (req, res) => {
               assignmentsByPaperId.set(paper.id, []);
             }
             assignmentsByPaperId.get(paper.id).push(assignedReviewer.userId);
+
+            // Send assignment email to the reviewer (fire-and-forget)
+            if (assignedReviewer.email) {
+              sendReviewerAssignmentEmail({
+                reviewerEmail: assignedReviewer.email,
+                reviewerName: assignedReviewer.name,
+                paperTitle: paper.title,
+                paperId: paper.id,
+                conferenceName: paper.conference_name || conferenceId,
+                dueDate: null,
+              });
+            }
           }
         } else {
           break;
@@ -430,7 +531,7 @@ export const getReviewManagementDataController = async (req, res) => {
 
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
-      .select("id, title, status, final_decision, validation_info, conference_name, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
+      .select("id, title, status, final_decision, validation_info, conference_name, manuscript_number, organizer_plagiarism_score, organizer_comments_for_authors, paper_authors(authors(first_name, email))")
       .eq("conference_id", conferenceId);
 
     if (papersError) {
@@ -505,6 +606,7 @@ export const getReviewManagementDataController = async (req, res) => {
         overallstatus: reviewers.every((r) => r.status === "reviewed") && reviewers.length > 0 ? "Consensus" : "In Progress",
         status: paper.status,
         decision: paper.final_decision,
+         manuscriptNumber: paper.manuscript_number ?? null, 
         avgTechConfidence,
         validationInfo,
         validationScore: validationInfo?.isValid ?? null,
@@ -770,7 +872,7 @@ export const manuallyAssignPaperController = async (req, res) => {
 
     const { data: paper } = await supabase
       .from("research_papers")
-      .select("id, status, organizer_plagiarism_score")
+      .select("id, title, conference_name, status, organizer_plagiarism_score")
       .eq("id", paperId)
       .maybeSingle();
 
@@ -877,6 +979,26 @@ export const manuallyAssignPaperController = async (req, res) => {
         alreadyAssignedIds.push(reviewerId);
         newlyAssignedCount += 1;
         results.push({ reviewerId, status: "assigned" });
+
+        // Fetch reviewer details and send assignment email (fire-and-forget)
+        supabase
+          .from("users")
+          .select("name, email")
+          .eq("id", reviewerId)
+          .maybeSingle()
+          .then(({ data: reviewer }) => {
+            if (reviewer?.email) {
+              sendReviewerAssignmentEmail({
+                reviewerEmail: reviewer.email,
+                reviewerName: reviewer.name,
+                paperTitle: paper.title || paperId,
+                paperId,
+                conferenceName: paper.conference_name || conferenceId,
+                dueDate: dueDateUTC,
+              });
+            }
+          })
+          .catch(() => {});
       }
     }
 

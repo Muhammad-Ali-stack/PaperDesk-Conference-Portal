@@ -392,6 +392,9 @@ CREATE TABLE IF NOT EXISTS research_papers (
   organizer_comments_for_authors  TEXT        DEFAULT NULL,
   -- How many times this paper has been resubmitted
   resubmission_count              INTEGER     NOT NULL DEFAULT 0,
+  -- Unique manuscript identifier: NED2026-<Acronym>-<n>
+  -- Generated at submission time; n is the per-conference sequential number
+  manuscript_number               TEXT        DEFAULT NULL,
   created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -455,6 +458,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   -- All assignments for the same paper share this value.
   -- Frontend converts to local timezone using browser Intl API.
   due_date       TIMESTAMPTZ          DEFAULT NULL,
+  -- Set to TRUE once a 2-day-before-deadline reminder email has been sent.
+  -- Prevents duplicate reminders from the background reminderService.
+  reminder_sent  BOOLEAN     NOT NULL DEFAULT FALSE,
   UNIQUE (paper_id, reviewer_id)
 );
 

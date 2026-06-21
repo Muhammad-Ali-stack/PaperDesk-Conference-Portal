@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../lib/utils";
 
-// Helper to get auth headers (same as in other components)
+// Helper to get auth headers
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
   return { headers: { Authorization: `Bearer ${token}` } };
@@ -28,6 +28,7 @@ const ReviewForm = () => {
   const [paperId, setPaperId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [title, setTitle] = useState("");
+  const [manuscriptNumber, setManuscriptNumber] = useState("");
   const [plagiarismScore, setPlagiarismScore] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchingScore, setFetchingScore] = useState(true);
@@ -35,15 +36,16 @@ const ReviewForm = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Read paperId, reviewerId, title from URL query params
+  // Read query params from URL
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
     setPaperId(queryParams.get("paperId") || "");
     setReviewerId(queryParams.get("reviewerId") || "");
     setTitle(queryParams.get("title") || "");
+    setManuscriptNumber(queryParams.get("manuscriptNumber") || "");
   }, [location.search]);
 
-  // Fetch plagiarism score from the reviewer‑only endpoint
+  // Fetch plagiarism score from the reviewer-only endpoint
   const fetchPlagiarismScore = useCallback(async () => {
     if (!paperId) return;
     setFetchingScore(true);
@@ -56,7 +58,6 @@ const ReviewForm = () => {
       setPlagiarismScore(score);
     } catch (error) {
       console.error("Failed to fetch plagiarism score:", error);
-      // 403/404 are expected if the score does not exist or the reviewer is not assigned
       setPlagiarismScore(null);
     } finally {
       setFetchingScore(false);
@@ -74,12 +75,28 @@ const ReviewForm = () => {
 
   const getPlagiarismVariant = (score) => {
     if (score === null || score === undefined)
-      return { color: "text-muted-foreground", bg: "bg-muted border-border", banner: "bg-muted border-border text-muted-foreground" };
+      return {
+        color: "text-muted-foreground",
+        bg: "bg-muted border-border",
+        banner: "bg-muted border-border text-muted-foreground",
+      };
     if (score <= 15)
-      return { color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800", banner: "bg-green-50 dark:bg-green-950 border-green-100 dark:border-green-900 text-green-700 dark:text-green-300" };
+      return {
+        color: "text-green-600 dark:text-green-400",
+        bg: "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800",
+        banner: "bg-green-50 dark:bg-green-950 border-green-100 dark:border-green-900 text-green-700 dark:text-green-300",
+      };
     if (score <= 25)
-      return { color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800", banner: "bg-yellow-50 dark:bg-yellow-950 border-yellow-100 dark:border-yellow-900 text-yellow-700 dark:text-yellow-300" };
-    return { color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800", banner: "bg-red-50 dark:bg-red-950 border-red-100 dark:border-red-900 text-red-700 dark:text-red-300" };
+      return {
+        color: "text-yellow-600 dark:text-yellow-400",
+        bg: "bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800",
+        banner: "bg-yellow-50 dark:bg-yellow-950 border-yellow-100 dark:border-yellow-900 text-yellow-700 dark:text-yellow-300",
+      };
+    return {
+      color: "text-red-600 dark:text-red-400",
+      bg: "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800",
+      banner: "bg-red-50 dark:bg-red-950 border-red-100 dark:border-red-900 text-red-700 dark:text-red-300",
+    };
   };
 
   const getPlagiarismStatus = (score) => {
@@ -159,12 +176,18 @@ const ReviewForm = () => {
             className="bg-card p-8 md:p-12 rounded-3xl shadow-2xl border border-border space-y-10"
             onSubmit={handleSubmit}
           >
+            {/* Header */}
             <div className="text-center border-b border-border pb-8">
               <h2 className="text-3xl font-extrabold tracking-tight">Manuscript Evaluation</h2>
               <p className="mt-2 text-muted-foreground font-medium italic">Title: {title}</p>
+              {manuscriptNumber && (
+                <p className="mt-1 text-sm text-muted-foreground font-mono">
+                  Manuscript ID: {manuscriptNumber}
+                </p>
+              )}
             </div>
 
-            {/* Plagiarism Score Display – fetched from database */}
+            {/* Plagiarism Score Display */}
             <div className={cn("rounded-2xl p-6 border", pVariant.bg)}>
               <div className="flex items-center justify-between">
                 <div>
@@ -201,7 +224,9 @@ const ReviewForm = () => {
               )}
               {!fetchingScore && !hasScore && (
                 <div className="mt-3 p-3 bg-muted rounded-xl border border-border">
-                  <p className="text-xs text-muted-foreground">No plagiarism score has been recorded yet.</p>
+                  <p className="text-xs text-muted-foreground">
+                    No plagiarism score has been recorded yet.
+                  </p>
                 </div>
               )}
             </div>
@@ -209,11 +234,11 @@ const ReviewForm = () => {
             {/* Scoring Criteria */}
             <div className="space-y-8">
               {[
-                { name: "originality", label: "Originality", desc: "Is the work novel and unique?" },
-                { name: "technicalQuality", label: "Technical Quality", desc: "Is the methodology sound and robust?" },
-                { name: "significance", label: "Significance", desc: "Does this contribute to the field?" },
-                { name: "clarity", label: "Clarity", desc: "Is the presentation clear and professional?" },
-                { name: "relevance", label: "Relevance", desc: "Does it align with the conference scope?" },
+                { name: "originality",      label: "Originality",       desc: "Is the work novel and unique?" },
+                { name: "technicalQuality", label: "Technical Quality",  desc: "Is the methodology sound and robust?" },
+                { name: "significance",     label: "Significance",       desc: "Does this contribute to the field?" },
+                { name: "clarity",          label: "Clarity",            desc: "Is the presentation clear and professional?" },
+                { name: "relevance",        label: "Relevance",          desc: "Does it align with the conference scope?" },
               ].map(({ name, label, desc }) => (
                 <div key={name} className="space-y-4">
                   <div className="flex justify-between items-end">

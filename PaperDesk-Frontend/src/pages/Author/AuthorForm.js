@@ -63,7 +63,7 @@ function AuthorForm({ conferenceName }) {
       country: "",
       affiliation: "",
       webPage: "",
-      corresponding: false,
+      corresponding: true, // solo author is always corresponding
     },
   ]);
 
@@ -114,7 +114,7 @@ function AuthorForm({ conferenceName }) {
           country: "",
           affiliation: "",
           webPage: "",
-          corresponding: false,
+          corresponding: true, // solo author is always corresponding
         },
       ]);
       setLoading(false);
@@ -135,7 +135,8 @@ function AuthorForm({ conferenceName }) {
       toast.error("You can add up to 15 authors only.");
       return;
     }
-    setAuthors([
+
+    const newAuthors = [
       ...authors,
       {
         firstName: "",
@@ -146,16 +147,45 @@ function AuthorForm({ conferenceName }) {
         webPage: "",
         corresponding: false,
       },
-    ]);
+    ];
+
+    // When going from 1 → 2 authors, clear the auto-corresponding flag
+    // so the user explicitly picks who the corresponding author is.
+    if (authors.length === 1) {
+      newAuthors[0] = { ...newAuthors[0], corresponding: false };
+    }
+
+    setAuthors(newAuthors);
   };
 
   const removeAuthor = (index) => {
     if (index === 0) return;
-    setAuthors(authors.filter((_, i) => i !== index));
+    const newAuthors = authors.filter((_, i) => i !== index);
+
+    // If back down to 1 author, they are automatically corresponding.
+    if (newAuthors.length === 1) {
+      newAuthors[0] = { ...newAuthors[0], corresponding: true };
+    }
+
+    setAuthors(newAuthors);
   };
 
   const handleInputChange = (index, event) => {
     const { name, value } = event.target;
+
+    // Duplicate email guard — compare against all other authors (case-insensitive)
+    if (name === "email" && value.trim() !== "") {
+      const duplicate = authors.some(
+        (a, i) =>
+          i !== index &&
+          a.email.trim().toLowerCase() === value.trim().toLowerCase()
+      );
+      if (duplicate) {
+        toast.error("This email is already used by another author.");
+        return; // Don't update state — keep the field as-is
+      }
+    }
+
     const newAuthors = [...authors];
     newAuthors[index][name] = value;
     setAuthors(newAuthors);
@@ -224,6 +254,14 @@ function AuthorForm({ conferenceName }) {
       return;
     }
 
+    // Final duplicate email check at submit time (safety net)
+    const emails = authors.map((a) => a.email.trim().toLowerCase()).filter(Boolean);
+    const uniqueEmails = new Set(emails);
+    if (uniqueEmails.size !== emails.length) {
+      toast.error("Duplicate author emails detected. Each author must have a unique email.");
+      return;
+    }
+
     const hasCorresponding = authors.some((a) => a.corresponding);
     if (!hasCorresponding) {
       toast.error("Please select one corresponding author.");
@@ -281,6 +319,9 @@ function AuthorForm({ conferenceName }) {
       setShowSubmittingMessage(false);
     }
   };
+
+  // Whether we're in "single author" mode — corresponding is automatic, no checkbox needed
+  const isSoloAuthor = authors.length === 1;
 
   if (loading) {
     return (
@@ -429,21 +470,31 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     </div>
 
-                    {/* Corresponding author checkbox — only one can be selected */}
-                    <div className="mt-5 flex items-center gap-2 px-1">
-                      <input
-                        type="checkbox"
-                        id={`corresponding-${index}`}
-                        checked={author.corresponding}
-                        onChange={() => handleCorrespondingChange(index)}
-                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                      />
-                      <label
-                        htmlFor={`corresponding-${index}`}
-                        className="text-xs font-bold text-muted-foreground uppercase tracking-widest cursor-pointer select-none"
-                      >
-                        Mark as Corresponding Author
-                      </label>
+                    {/* Corresponding author section */}
+                    <div className="mt-5 px-1">
+                      {isSoloAuthor ? (
+                        // Solo author: auto-corresponding, just show an informational note
+                        <p className="text-xs text-muted-foreground italic">
+                          You are automatically the corresponding author.
+                        </p>
+                      ) : (
+                        // Multiple authors: show checkbox to let them choose
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`corresponding-${index}`}
+                            checked={author.corresponding}
+                            onChange={() => handleCorrespondingChange(index)}
+                            className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                          />
+                          <label
+                            htmlFor={`corresponding-${index}`}
+                            className="text-xs font-bold text-muted-foreground uppercase tracking-widest cursor-pointer select-none"
+                          >
+                            Mark as Corresponding Author
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

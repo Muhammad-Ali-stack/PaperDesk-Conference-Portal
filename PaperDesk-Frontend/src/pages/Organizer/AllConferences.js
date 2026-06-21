@@ -21,11 +21,12 @@ const AllConferences = () => {
   const navigate = useNavigate();
 
   const isAdmin = auth?.user?.role === 1;
+  const isOrganizer = auth?.roles?.some((role) => role.role === "organizer");
 
   useEffect(() => {
     const fetchConferences = async () => {
       try {
-       const response = await axios.get("/api/conference/all-conferences");
+        const response = await axios.get("/api/conference/all-conferences");
         const data = response.data;
         setConferences(isAdmin ? data : data.filter((c) => c.status === "approved"));
       } catch (error) {
@@ -113,6 +114,15 @@ const AllConferences = () => {
                               <Button size="sm" variant="outline" onClick={() => (window.location.href = "/admindashboard/update-conference")}>
                                 Edit
                               </Button>
+                            ) : isOrganizer ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <Button size="sm" disabled>
+                                  Apply Now
+                                </Button>
+                                <span className="text-[10px] text-muted-foreground font-medium">
+                                  Editors cannot submit papers
+                                </span>
+                              </div>
                             ) : isSubmissionClosed ? (
                               <Button size="sm" variant="secondary" disabled>Closed</Button>
                             ) : (

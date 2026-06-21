@@ -56,8 +56,6 @@ const otpEmailHtml = (name, otp) => `
 
 /**
  * Fetches all non-expired trusted device records for a user.
- * @param {string} userId
- * @returns {Array} trusted device rows
  */
 const getActiveTrustedDevices = async (userId) => {
   const { data } = await supabase
@@ -70,8 +68,6 @@ const getActiveTrustedDevices = async (userId) => {
 
 /**
  * Fetches the user's conference roles.
- * @param {string} userId
- * @returns {Array} role objects
  */
 const getUserRoles = async (userId) => {
   const { data: userRoles } = await supabase
@@ -87,8 +83,6 @@ const getUserRoles = async (userId) => {
 
 /**
  * Sets the refresh token as an HttpOnly cookie on the response.
- * @param {object} res - Express response object.
- * @param {string} token - Raw refresh token string.
  */
 const setRefreshCookie = (res, token) => {
   res.cookie("refreshToken", token, {
@@ -102,7 +96,6 @@ const setRefreshCookie = (res, token) => {
 
 /**
  * Clears the refresh token cookie.
- * @param {object} res - Express response object.
  */
 const clearRefreshCookie = (res) => {
   res.clearCookie("refreshToken", { path: "/" });
@@ -194,9 +187,15 @@ export const registerController = async (req, res) => {
         if (!invitation) {
           return res.status(403).json({ success: false, message: "No valid organizer invitation found." });
         }
+
+        // FIX: store the actual conference_id from the invitation, not null
         const { error: upsertError } = await supabase
           .from("user_conference_roles")
-          .insert({ user_id: existingUser.id, conference_id: null, role: "organizer" });
+          .insert({
+            user_id: existingUser.id,
+            conference_id: invitation.conference_id,
+            role: "organizer",
+          });
 
         if (upsertError && !upsertError.message.includes("duplicate")) {
           console.error("[register] organizer role insert error:", upsertError.message);
@@ -243,9 +242,15 @@ export const registerController = async (req, res) => {
         await supabase.from("users").delete().eq("id", savedUser.id);
         return res.status(403).json({ success: false, message: "No valid organizer invitation found." });
       }
+
+      // FIX: store the actual conference_id from the invitation, not null
       await supabase
         .from("user_conference_roles")
-        .insert({ user_id: savedUser.id, conference_id: null, role: "organizer" });
+        .insert({
+          user_id: savedUser.id,
+          conference_id: invitation.conference_id,
+          role: "organizer",
+        });
 
       await supabase.from("invitations").update({ status: "accepted" }).eq("id", invitation.id);
     }
@@ -260,16 +265,9 @@ export const registerController = async (req, res) => {
     return res.status(500).json({ success: false, message: "Error registering user." });
   }
 };
+
 // ============================================================
 // loginController
-// New flow:
-//  1. Validate email → find user.
-//  2. Handle invitation role side-effects (same as before).
-//  3. If a valid refresh token cookie is present AND matches a
-//     trusted_devices record → skip OTP, rotate refresh token,
-//     issue a new 15-min access token, return immediately.
-//  4. Otherwise → generate a hashed OTP, email it, return
-//     { requiresOtp: true, userId }.
 // ============================================================
 export const loginController = async (req, res) => {
   try {
@@ -315,18 +313,24 @@ export const loginController = async (req, res) => {
     }
 
     if (role === "organizer" && invitationToken) {
+      // FIX: also select conference_id from the invitation
       const { data: invitation } = await supabase
         .from("invitations")
-        .select("id, email")
+        .select("id, email, conference_id")
         .eq("token", invitationToken)
         .eq("role", "organizer")
         .eq("status", "pending")
         .maybeSingle();
 
       if (invitation) {
+        // FIX: store the actual conference_id from the invitation, not null
         const { error: insertError } = await supabase
           .from("user_conference_roles")
-          .insert({ user_id: user.id, conference_id: null, role: "organizer" });
+          .insert({
+            user_id: user.id,
+            conference_id: invitation.conference_id,
+            role: "organizer",
+          });
 
         if (!insertError || insertError.message.includes("duplicate")) {
           await supabase
@@ -344,7 +348,6 @@ export const loginController = async (req, res) => {
       for (const device of activeDevices) {
         const tokenMatch = await bcrypt.compare(rawRefreshToken, device.token_hash);
         if (tokenMatch) {
-          // Valid trusted device — rotate refresh token & issue access token.
           const newRaw = crypto.randomBytes(64).toString("hex");
           const newHash = await bcrypt.hash(newRaw, 10);
           const newExpiry = new Date(Date.now() + thirtyDaysMs()).toISOString();
@@ -381,7 +384,6 @@ export const loginController = async (req, res) => {
           });
         }
       }
-      // Cookie present but no matching record — fall through to OTP.
     }
 
     // ── OTP flow ───────────────────────────────────────────────
@@ -432,14 +434,6 @@ export const loginController = async (req, res) => {
 
 // ============================================================
 // verifyOtpController
-// Verifies the hashed OTP. On success:
-//  - Issues a 15-min JWT access token.
-//  - Generates a 30-day refresh token and stores its hash in
-//    trusted_devices.
-//  - Sets the raw refresh token in an HttpOnly cookie.
-//  - Returns the access token + user profile to the frontend.
-// Brute-force protection: marks OTP as used after MAX_OTP_ATTEMPTS
-// failed attempts so it can never be retried.
 // ============================================================
 export const verifyOtpController = async (req, res) => {
   try {
@@ -449,7 +443,6 @@ export const verifyOtpController = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID and OTP are required." });
     }
 
-    // Fetch the most-recent non-expired, non-used OTP record for this user.
     const { data: otpRecord } = await supabase
       .from("login_otps")
       .select("*")
@@ -464,7 +457,6 @@ export const verifyOtpController = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid or expired verification code." });
     }
 
-    // Brute-force guard: invalidate after too many attempts.
     if (otpRecord.attempts >= MAX_OTP_ATTEMPTS) {
       await supabase.from("login_otps").update({ used: true }).eq("id", otpRecord.id);
       return res.status(401).json({
@@ -473,7 +465,6 @@ export const verifyOtpController = async (req, res) => {
       });
     }
 
-    // Constant-time hashed comparison.
     const isValid = await bcrypt.compare(otp, otpRecord.otp_code);
 
     if (!isValid) {
@@ -484,7 +475,6 @@ export const verifyOtpController = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid or expired verification code." });
     }
 
-    // Mark OTP as used to prevent replay.
     await supabase.from("login_otps").update({ used: true }).eq("id", otpRecord.id);
 
     const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
@@ -492,7 +482,6 @@ export const verifyOtpController = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    // Generate access token (15 min) and refresh token (30 days).
     const accessToken = JWT.sign({ _id: user.id }, process.env.JWT_SECRET, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     });
@@ -535,11 +524,6 @@ export const verifyOtpController = async (req, res) => {
 
 // ============================================================
 // refreshTokenController
-// Validates the refresh token cookie, performs token rotation
-// (deletes old record, inserts new one), and returns a fresh
-// 15-min access token. No OTP required.
-//
-// @route POST /api/auth/refresh
 // ============================================================
 export const refreshTokenController = async (req, res) => {
   try {
@@ -548,8 +532,6 @@ export const refreshTokenController = async (req, res) => {
       return res.status(401).json({ success: false, message: "No refresh token provided." });
     }
 
-    // Determine userId from the token if the JWT is supplied, or scan all users.
-    // Prefer reading userId from request body for efficiency.
     const { userId } = req.body;
     if (!userId) {
       return res.status(400).json({ success: false, message: "userId is required in the request body." });
@@ -579,7 +561,6 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
-    // Rotate: delete old record, insert new one.
     await supabase.from("trusted_devices").delete().eq("id", matchedDevice.id);
 
     const newRaw = crypto.randomBytes(64).toString("hex");
@@ -624,12 +605,6 @@ export const refreshTokenController = async (req, res) => {
 
 // ============================================================
 // logoutController
-// Normal logout: clears the access token on the client side
-// only. Refresh token cookie is also cleared but the trusted
-// device RECORD is preserved so the user can silently
-// re-authenticate from the same device on next login.
-//
-// @route POST /api/auth/logout
 // ============================================================
 export const logoutController = async (req, res) => {
   try {
@@ -645,12 +620,6 @@ export const logoutController = async (req, res) => {
 
 // ============================================================
 // logoutAllDevicesController
-// Deletes ALL trusted_devices records for the authenticated
-// user, clears the refresh token cookie, and forces OTP
-// verification on the next login from every device.
-//
-// @route POST /api/auth/logout-all
-// Requires: requireLogin middleware (Bearer access token).
 // ============================================================
 export const logoutAllDevicesController = async (req, res) => {
   try {
@@ -673,7 +642,7 @@ export const logoutAllDevicesController = async (req, res) => {
 };
 
 // ============================================================
-// getInvitationByTokenController (unchanged)
+// getInvitationByTokenController
 // ============================================================
 export const getInvitationByTokenController = async (req, res) => {
   try {
@@ -709,8 +678,9 @@ export const getInvitationByTokenController = async (req, res) => {
     return res.status(500).json({ success: false, message: "Error fetching invitation." });
   }
 };
+
 // ============================================================
-// updateProfileController (unchanged)
+// updateProfileController
 // ============================================================
 export const updateProfileController = async (req, res) => {
   try {
@@ -760,7 +730,7 @@ export const updateProfileController = async (req, res) => {
 };
 
 // ============================================================
-// getUserRolesController (unchanged)
+// getUserRolesController
 // ============================================================
 export const getUserRolesController = async (req, res) => {
   try {
@@ -794,7 +764,7 @@ export const getUserRolesController = async (req, res) => {
 };
 
 // ============================================================
-// getUserConferencesByRole (unchanged)
+// getUserConferencesByRole
 // ============================================================
 export const getUserConferencesByRole = async (req, res) => {
   try {

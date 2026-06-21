@@ -116,15 +116,12 @@ const AllPapersToReview = () => {
   // ─── Statistics ────────────────────────────────────────────────────────────
   const reviewedCount = assignedPapers.filter(p => p.isReviewedBy?.includes(reviewerId)).length;
 
-  // Papers without a review AND the final decision is still "pending" (or null/undefined)
   const pendingCount = assignedPapers.filter(p => {
     const notReviewed = !p.isReviewedBy?.includes(reviewerId);
     const decision = p.finalDecision ? p.finalDecision.toLowerCase() : "pending";
-    const isPending = decision === "pending";
-    return notReviewed && isPending;
+    return notReviewed && decision === "pending";
   }).length;
 
-  // Papers that have already received a final decision from the organizer (accepted, rejected, modification required)
   const decidedCount = assignedPapers.filter(p => {
     const decision = p.finalDecision ? p.finalDecision.toLowerCase() : "pending";
     return decision !== "pending";
@@ -150,8 +147,8 @@ const AllPapersToReview = () => {
             <div className="flex items-center gap-3">
               {!loading && (
                 <div className="flex items-center gap-2">
-                  <Badge variant="success" className="text-sm px-3 py-1">{reviewedCount} Reviewed</Badge>
-                  <Badge variant="warning" className="text-sm px-3 py-1">{pendingCount} Pending</Badge>
+                  <Badge variant="success"   className="text-sm px-3 py-1">{reviewedCount} Reviewed</Badge>
+                  <Badge variant="warning"   className="text-sm px-3 py-1">{pendingCount} Pending</Badge>
                   <Badge variant="secondary" className="text-sm px-3 py-1">{decidedCount} Decided</Badge>
                 </div>
               )}
@@ -177,21 +174,17 @@ const AllPapersToReview = () => {
           ) : (
             <div className="space-y-4">
               {assignedPapers.map((paper) => {
-                const isReviewed    = paper.isReviewedBy?.includes(reviewerId);
-                const finalDecision = paper.finalDecision ? paper.finalDecision.toLowerCase() : "pending";
+                const isReviewed       = paper.isReviewedBy?.includes(reviewerId);
+                const finalDecision    = paper.finalDecision ? paper.finalDecision.toLowerCase() : "pending";
                 const hasFinalDecision = finalDecision !== "pending";
-                const isOverdue     = getDueDateStatus(paper.dueDate) === "overdue";
-
-                // Disable card if: already reviewed, final decision given, OR past due date
-                const disabled = isReviewed || hasFinalDecision || isOverdue;
+                const isOverdue        = getDueDateStatus(paper.dueDate) === "overdue";
+                const disabled         = isReviewed || hasFinalDecision || isOverdue;
 
                 return (
                   <Card
                     key={paper.paperId}
                     className={`transition-shadow ${
-                      disabled
-                        ? "opacity-60 grayscale pointer-events-none"
-                        : "hover:shadow-md"
+                      disabled ? "opacity-60 grayscale pointer-events-none" : "hover:shadow-md"
                     } ${isOverdue && !isReviewed && !hasFinalDecision ? "border-red-200 bg-red-50/30" : ""}`}
                   >
                     <CardContent className="p-6">
@@ -201,7 +194,9 @@ const AllPapersToReview = () => {
                           {/* Badges row */}
                           <div className="flex flex-wrap items-center gap-2 mb-2">
                             <Badge variant="teal" className="text-[10px]">{paper.conferenceAcronym}</Badge>
-                            {isReviewed    && <Badge variant="success"   className="text-[10px]">Reviewed</Badge>}
+                            {isReviewed && (
+                              <Badge variant="success" className="text-[10px]">Reviewed</Badge>
+                            )}
                             {hasFinalDecision && (
                               <Badge variant="secondary" className="text-[10px]">
                                 {finalDecision === "accepted" && "Accepted"}
@@ -215,8 +210,13 @@ const AllPapersToReview = () => {
                             {getPlagiarismBadge(paper)}
                           </div>
 
-                          {/* Title & abstract */}
+                          {/* Title, manuscript ID & abstract */}
                           <h2 className="font-bold text-base mb-1 truncate">{paper.title}</h2>
+                          {paper.manuscriptNumber && (
+                            <p className="text-xs text-muted-foreground font-mono mb-1">
+                              Manuscript ID: {paper.manuscriptNumber}
+                            </p>
+                          )}
                           {paper.abstract && (
                             <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{paper.abstract}</p>
                           )}
@@ -262,9 +262,9 @@ const AllPapersToReview = () => {
                             </Button>
                           ) : (
                             <Button size="sm" asChild>
-                              <Link to={`/userdashboard/review-form?reviewerId=${reviewerId}&paperId=${paper.paperId}&title=${encodeURIComponent(paper.title)}`}>
-                                Evaluate
-                              </Link>
+                              <Link to={`/userdashboard/review-form?reviewerId=${reviewerId}&paperId=${paper.paperId}&title=${encodeURIComponent(paper.title)}&manuscriptNumber=${encodeURIComponent(paper.manuscriptNumber || "")}`}>
+  Evaluate
+</Link>
                             </Button>
                           )}
                         </div>

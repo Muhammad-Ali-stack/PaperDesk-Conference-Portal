@@ -287,6 +287,11 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
           <CardTitle className="text-base font-semibold leading-snug line-clamp-2">
             {paper.title}
           </CardTitle>
+  {paper.manuscript_number && (
+  <p className="text-xs text-muted-foreground font-mono mt-0.5">
+    Manuscript ID: {paper.manuscript_number}
+  </p>
+)}
 
           <div className="flex flex-wrap gap-2 pt-2">
             {isRejected || isAccepted || isModRequired ? (

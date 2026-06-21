@@ -81,6 +81,12 @@ ALTER TABLE assignments
 ALTER TABLE assignments
   ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ DEFAULT NULL;
 
+ALTER TABLE assignments
+  ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE research_papers
+  ADD COLUMN IF NOT EXISTS manuscript_number TEXT DEFAULT NULL;
+
 ALTER TABLE reviews
   ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -446,7 +452,8 @@ INSERT INTO research_papers (
   conference_id, conference_name, conference_acronym,
   status, final_decision,
   organizer_plagiarism_score, resubmission_count,
-  organizer_comments_for_authors, validation_info
+  organizer_comments_for_authors, validation_info,
+  manuscript_number
 ) VALUES
 
   -- ── P1: Accepted ─────────────────────────────────────────
@@ -460,7 +467,8 @@ INSERT INTO research_papers (
    'reviewed', 'Accepted',
    12.5, 0,
    'Excellent contribution. The evaluation section is particularly strong. Camera-ready instructions will follow.',
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":10,"sizeMB":"1.45","author":"Frank Okonkwo"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":10,"sizeMB":"1.45","author":"Frank Okonkwo"}}'::jsonb,
+   'NED2026-ICSE2025-1'),
 
   -- ── P2: Assigned — 2 reviewers active, no reviews yet ────
   ('30000000-0000-0000-0000-000000000002',
@@ -473,7 +481,8 @@ INSERT INTO research_papers (
    'assigned', NULL,
    8.0, 0,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":12,"sizeMB":"2.10","author":"Grace Petrova"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":12,"sizeMB":"2.10","author":"Grace Petrova"}}'::jsonb,
+   'NED2026-ICSE2025-2'),
 
   -- ── P3: Pending — no plagiarism score (not yet assignable) ──
   ('30000000-0000-0000-0000-000000000003',
@@ -486,7 +495,8 @@ INSERT INTO research_papers (
    'pending', NULL,
    NULL, 0,  -- No plagiarism score: auto-assign will skip this paper
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":8,"sizeMB":"0.95","author":"Frank Okonkwo"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":8,"sizeMB":"0.95","author":"Frank Okonkwo"}}'::jsonb,
+   'NED2026-ICSE2025-3'),
 
   -- ── P4: Pending — authored by Henry (COI test case) ───────
   -- Henry is also a reviewer on ICSE2025.
@@ -503,7 +513,8 @@ INSERT INTO research_papers (
    'pending', NULL,
    5.0, 0,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":9,"sizeMB":"1.20","author":"Henry Walsh"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":9,"sizeMB":"1.20","author":"Henry Walsh"}}'::jsonb,
+   'NED2026-ICSE2025-4'),
 
   -- ── P5: Modification Required (first round, not yet resubmitted) ──
   ('30000000-0000-0000-0000-000000000005',
@@ -518,7 +529,8 @@ INSERT INTO research_papers (
    -- so the author can upload a revised PDF
    15.0, 0,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":11,"sizeMB":"1.80","author":"Grace Petrova"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":11,"sizeMB":"1.80","author":"Grace Petrova"}}'::jsonb,
+   'NED2026-ICSE2025-5'),
 
   -- ── P6: Resubmitted — same paper after P5 modification ────
   -- resubmission_count = 1, status = "resubmitted" awaiting re-assignment
@@ -532,7 +544,8 @@ INSERT INTO research_papers (
    'resubmitted', NULL,
    15.0, 1,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":13,"sizeMB":"2.05","author":"Grace Petrova"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":13,"sizeMB":"2.05","author":"Grace Petrova"}}'::jsonb,
+   'NED2026-ICSE2025-6'),
 
   -- ── P7: SECS2025 — reviewed + Rejected ─────────────────
   ('30000000-0000-0000-0000-000000000007',
@@ -545,7 +558,8 @@ INSERT INTO research_papers (
    'reviewed', 'Rejected',
    22.0, 1,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":15,"sizeMB":"3.80","author":"Frank Okonkwo"}}'::jsonb),
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":15,"sizeMB":"3.80","author":"Frank Okonkwo"}}'::jsonb,
+   'NED2026-SECS2025-1'),
 
   -- ── P8: ML2025 — pending (conference itself is pending) ───
   ('30000000-0000-0000-0000-000000000008',
@@ -558,7 +572,8 @@ INSERT INTO research_papers (
    'pending', NULL,
    NULL, 0,
    NULL,
-   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":9,"sizeMB":"1.10","author":"Grace Petrova"}}'::jsonb);
+   '{"isValid":true,"message":"PDF is valid and ready for submission.","fileInfo":{"pages":9,"sizeMB":"1.10","author":"Grace Petrova"}}'::jsonb,
+   'NED2026-ML2025-1');
 
 
 -- ============================================================

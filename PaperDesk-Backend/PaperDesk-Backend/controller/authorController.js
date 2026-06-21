@@ -155,6 +155,16 @@ export const submitPaperController = async (req, res) => {
       note: "IEEE compliance will be reviewed manually by conference organizers.",
     };
 
+    // Generate unique manuscript number: NED2026-<Acronym>-<n>
+    // n = total papers submitted to this conference so far + 1
+    const { count: paperCount } = await supabase
+      .from("research_papers")
+      .select("id", { count: "exact", head: true })
+      .eq("conference_id", conferenceId);
+
+    const manuscriptN = (paperCount ?? 0) + 1;
+    const manuscriptNumber = `NED2026-${conferenceAcronym}-${manuscriptN}`;
+
     // Insert paper record
     const { data: paper, error: paperError } = await supabase
       .from("research_papers")
@@ -167,6 +177,7 @@ export const submitPaperController = async (req, res) => {
         conference_name: conferenceName,
         conference_acronym: conferenceAcronym,
         validation_info: validationInfo,
+        manuscript_number: manuscriptNumber,
       })
       .select()
       .single();
@@ -859,6 +870,7 @@ export const getUserConferencePapersController = async (req, res) => {
         status,
         final_decision,
         created_at,
+         manuscript_number,  
         conference_id,
         conference_name,
         conference_acronym,

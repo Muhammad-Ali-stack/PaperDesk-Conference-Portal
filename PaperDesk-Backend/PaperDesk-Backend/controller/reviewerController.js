@@ -378,7 +378,7 @@ export const getAssignedPapersForReviewerController = async (req, res) => {
     // nested select string. It is fetched separately below.
     const { data: assignments, error } = await supabase
       .from("assignments")
-      .select("assigned_at, conference_id, conferences!conference_id(conference_name, acronym), paper_id, research_papers!paper_id(id, title, abstract, keywords, paper_file_path, conference_name, conference_acronym, status, final_decision, validation_info, paper_authors(authors(first_name, last_name, email, affiliation)))")
+      .select("assigned_at, conference_id, conferences!conference_id(conference_name, acronym), paper_id, research_papers!paper_id(id, title, abstract, keywords, paper_file_path, conference_name, conference_acronym, status, final_decision, validation_info, manuscript_number, paper_authors(authors(first_name, last_name, email, affiliation)))")
       .eq("reviewer_id", reviewerId);
 
     if (error || !assignments || assignments.length === 0) {
@@ -428,6 +428,7 @@ export const getAssignedPapersForReviewerController = async (req, res) => {
         keywords: paper.keywords,
         paperFilePath: paper.paper_file_path,
         conferenceName: paper.conference_name,
+         manuscriptNumber: paper.manuscript_number ?? null, 
         conferenceAcronym: paper.conference_acronym,
         assignedAt: assignment.assigned_at,
         status: paper.status,

@@ -48,6 +48,13 @@ const DECISION_OPTIONS = [
   },
 ];
 
+// Returns the current datetime formatted as "YYYY-MM-DDTHH:MM" for the min attribute
+const getNowLocalString = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+};
+
 const AssignPapersPage = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
   const [papers, setPapers] = useState([]);
@@ -211,6 +218,13 @@ const AssignPapersPage = () => {
   const handleUpdateDueDate = async () => {
     const paperId = getPaperId(selectedPaper);
     if (!paperId) return;
+
+    // Guard: due date must be in the future
+    if (dueDate && new Date(dueDate) <= new Date()) {
+      toast.error("Due date must be in the future.");
+      return;
+    }
+
     setUpdatingDueDate(true);
     try {
       await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, {
@@ -239,6 +253,12 @@ const AssignPapersPage = () => {
         toast.error("Enter a valid plagiarism score (0-100).");
         return;
       }
+    }
+
+    // Guard: due date must be in the future if one was set
+    if (dueDate && new Date(dueDate) <= new Date()) {
+      toast.error("Due date must be in the future.");
+      return;
     }
 
     setSubmitting(true);
@@ -749,9 +769,11 @@ const AssignPapersPage = () => {
                       </span>
                     </div>
 
+                    {/* min set to current datetime — browser blocks past date selection */}
                     <input
                       type="datetime-local"
                       value={dueDate}
+                      min={getNowLocalString()}
                       onChange={(e) => setDueDate(e.target.value)}
                       disabled={submitting}
                       className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 text-foreground"
