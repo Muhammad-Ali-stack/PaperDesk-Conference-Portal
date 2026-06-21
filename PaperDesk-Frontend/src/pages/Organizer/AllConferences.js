@@ -8,12 +8,6 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
 
-const statusVariant = (status) => {
-  if (status === "approved") return "success";
-  if (status === "rejected") return "destructive";
-  return "warning";
-};
-
 const AllConferences = () => {
   const [conferences, setConferences] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,7 +66,6 @@ const AllConferences = () => {
                       <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Conference</th>
                       <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Location</th>
                       <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground hidden md:table-cell">Deadlines</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
                       <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">Action</th>
                     </tr>
                   </thead>
@@ -103,11 +96,6 @@ const AllConferences = () => {
                             </div>
                             <div className="text-xs font-semibold text-muted-foreground uppercase mt-1 mb-0.5">Starts</div>
                             <div className="text-sm">{conference.start_date?.slice(0, 10) || "-"}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <Badge variant={statusVariant(conference.status)} className="capitalize">
-                              {conference.status}
-                            </Badge>
                           </td>
                           <td className="px-6 py-4 text-center whitespace-nowrap">
                             {isAdmin ? (

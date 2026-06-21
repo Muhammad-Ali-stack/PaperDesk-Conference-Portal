@@ -82,8 +82,8 @@ const Header = () => {
             {[
               { to: "/", label: "Home", end: true },
               { to: "/learn-more", label: "About" },
-              ...(auth?.user ? [{ to: "/all-conferences", label: "Conferences" }] : []),
-              ...(isOrganizer ? [{ to: "/userdashboard/create-conference", label: "Create" }] : []),
+              ...(auth?.user && !isOrganizer ? [{ to: "/all-conferences", label: "Conferences" }] : []),
+              ...(isOrganizer ? [{ to: "/userdashboard/create-conference", label: "Create Conference" }] : []),
             ].map((item) => (
               <NavLink
                 key={item.to}
@@ -209,7 +209,7 @@ const Header = () => {
             {[
               { to: "/", label: "Home", end: true },
               { to: "/learn-more", label: "About" },
-              ...(auth?.user ? [{ to: "/all-conferences", label: "Conferences" }] : []),
+              ...(auth?.user && !isOrganizer ? [{ to: "/all-conferences", label: "Conferences" }] : []),
               ...(isOrganizer ? [{ to: "/userdashboard/create-conference", label: "Create Conference" }] : []),
             ].map((item) => (
               <NavLink

@@ -50,16 +50,7 @@ const buildReminderHtml = ({ reviewerName, paperTitle, conferenceName, dueDate, 
                 <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Conference:</strong> ${conferenceName}</p>
                 <p style="margin:0;font-size:14px;color:#374151;"><strong>Review Due:</strong> ${formattedDue}</p>
               </div>
-              <div style="text-align:center;margin-bottom:28px;">
-                <a href="${paperLink}"
-                   style="display:inline-block;background-color:#4B707A;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:700;letter-spacing:0.3px;">
-                  Review Paper Now
-                </a>
-              </div>
-              <p style="margin:0;font-size:13px;color:#9ca3af;">
-                If the button does not work, copy and paste this link into your browser:<br/>
-                <a href="${paperLink}" style="color:#4B707A;">${paperLink}</a>
-              </p>
+    
             </td>
           </tr>
           <tr>

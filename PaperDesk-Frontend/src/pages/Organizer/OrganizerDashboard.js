@@ -4,13 +4,13 @@ import Layout from "../../components/Layout";
 import { useOrganizerConference } from "../../context/OrganizerConferenceContext";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { FileText, CheckCircle, XCircle, Clock, Users, Star, AlertTriangle } from "lucide-react";
+import { FileText, CheckCircle2, XCircle, Clock, Users, Star, AlertTriangle } from "lucide-react";
 
-const StatCard = ({ icon: Icon, label, value, colorClass, loading }) => (
-  <Card>
+const StatCard = ({ icon: Icon, label, value, accentClass, iconClass, loading }) => (
+  <Card className="border-border/60">
     <CardContent className="p-5 flex items-center gap-4">
-      <div className={`p-3 rounded-xl ${colorClass} flex-shrink-0`}>
-        <Icon className="h-5 w-5 text-white" />
+      <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${accentClass}`}>
+        <Icon className={`h-[18px] w-[18px] ${iconClass}`} strokeWidth={1.75} />
       </div>
       <div className="min-w-0">
         {loading ? (
@@ -20,8 +20,8 @@ const StatCard = ({ icon: Icon, label, value, colorClass, loading }) => (
           </>
         ) : (
           <>
-            <p className="text-2xl font-extrabold text-foreground leading-none">{value}</p>
-            <p className="text-xs text-muted-foreground font-medium mt-0.5 leading-tight">{label}</p>
+            <p className="text-2xl font-bold text-foreground leading-none tabular-nums">{value}</p>
+            <p className="text-xs text-muted-foreground font-medium mt-1 leading-tight">{label}</p>
           </>
         )}
       </div>
@@ -160,11 +160,46 @@ const OrganizerDashboard = () => {
 
           {/* Stat Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <StatCard icon={FileText}      label="Total Papers"  value={total}           colorClass="bg-slate-500"   loading={isLoading} />
-            <StatCard icon={CheckCircle}   label="Accepted"      value={accepted}        colorClass="bg-emerald-500" loading={isLoading} />
-            <StatCard icon={XCircle}       label="Rejected"      value={rejected}        colorClass="bg-red-500"     loading={isLoading} />
-            <StatCard icon={Clock}         label="Under Review"  value={underReview}     colorClass="bg-indigo-500"  loading={isLoading} />
-            <StatCard icon={Users}         label="Reviewers"     value={reviewers.length} colorClass="bg-teal-500"   loading={isLoading} />
+            <StatCard
+              icon={FileText}
+              label="Total Papers"
+              value={total}
+              accentClass="bg-slate-100 dark:bg-slate-800"
+              iconClass="text-slate-600 dark:text-slate-300"
+              loading={isLoading}
+            />
+            <StatCard
+              icon={CheckCircle2}
+              label="Accepted"
+              value={accepted}
+              accentClass="bg-emerald-50 dark:bg-emerald-950/40"
+              iconClass="text-emerald-600 dark:text-emerald-400"
+              loading={isLoading}
+            />
+            <StatCard
+              icon={XCircle}
+              label="Rejected"
+              value={rejected}
+              accentClass="bg-red-50 dark:bg-red-950/40"
+              iconClass="text-red-600 dark:text-red-400"
+              loading={isLoading}
+            />
+            <StatCard
+              icon={Clock}
+              label="Under Review"
+              value={underReview}
+              accentClass="bg-indigo-50 dark:bg-indigo-950/40"
+              iconClass="text-indigo-600 dark:text-indigo-400"
+              loading={isLoading}
+            />
+            <StatCard
+              icon={Users}
+              label="Reviewers"
+              value={reviewers.length}
+              accentClass="bg-teal-50 dark:bg-teal-950/40"
+              iconClass="text-teal-600 dark:text-teal-400"
+              loading={isLoading}
+            />
           </div>
 
           {/* Charts Row */}
@@ -187,7 +222,7 @@ const OrganizerDashboard = () => {
                   <p className="text-sm text-muted-foreground">No conference selected.</p>
                 ) : total === 0 ? (
                   <div className="flex items-center gap-3 text-muted-foreground">
-                    <FileText className="h-8 w-8 opacity-30" />
+                    <FileText className="h-8 w-8 opacity-30" strokeWidth={1.5} />
                     <p className="text-sm">No papers submitted yet.</p>
                   </div>
                 ) : (
@@ -244,16 +279,16 @@ const OrganizerDashboard = () => {
                     />
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs pt-1 border-t border-border">
                       <div className="flex items-center gap-1.5">
-                        <Star className="h-3.5 w-3.5 text-emerald-500" />
+                        <Star className="h-3.5 w-3.5 text-emerald-500" strokeWidth={1.75} />
                         <span className="text-muted-foreground">{totalReviewsSubmitted} reviews in</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-amber-500" />
+                        <Clock className="h-3.5 w-3.5 text-amber-500" strokeWidth={1.75} />
                         <span className="text-muted-foreground">{Math.max(0, totalReviewsRequired - totalReviewsSubmitted)} pending</span>
                       </div>
                       {modRequired > 0 && (
                         <div className="flex items-center gap-1.5">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={1.75} />
                           <span className="text-muted-foreground">{modRequired} mod. required</span>
                         </div>
                       )}

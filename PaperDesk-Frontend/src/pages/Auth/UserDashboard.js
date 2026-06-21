@@ -7,7 +7,7 @@ import { FileText, Star, Globe, LayoutDashboard } from "lucide-react";
 
 const ROLE_CONFIG = {
   organizer: {
-    label: "Editor (Organizer)",
+    label: "Editor",
     desc: "Manage conferences, invite reviewers, handle paper assignments and final decisions.",
     icon: Globe,
     color: "bg-teal-500",
@@ -15,7 +15,7 @@ const ROLE_CONFIG = {
     accent: "border-teal-500/20 hover:border-teal-500/40",
   },
   2: {
-    label: "Editor (Organizer)",
+    label: "Editor",
     desc: "Manage conferences, invite reviewers, handle paper assignments and final decisions.",
     icon: Globe,
     color: "bg-teal-500",

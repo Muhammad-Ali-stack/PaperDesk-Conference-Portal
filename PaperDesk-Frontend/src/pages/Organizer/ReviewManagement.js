@@ -47,6 +47,13 @@ function getDueDateStatus(dueDateUTC) {
   return "ok";
 }
 
+// Local "now", truncated to the minute, formatted for a datetime-local input's min attribute
+function getLocalDateTimeNow() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function DueDatePill({ dueDateUTC }) {
   const formatted = formatDueDate(dueDateUTC);
   const status = getDueDateStatus(dueDateUTC);
@@ -214,6 +221,12 @@ const ReviewManagement = () => {
   const handleCancelEditDueDate = () => setEditingDueDateFor(null);
   const handleSaveDueDate = async (paperId) => {
     const dueDate = dueDateInputs[paperId];
+    // Guard against past dates even if the browser's native min-date check is bypassed
+    // (manual typing, older browsers, etc). Clearing the date (empty string) is still allowed.
+    if (dueDate && new Date(dueDate) < new Date()) {
+      toast.error("Due date cannot be set in the past.");
+      return;
+    }
     setSavingDueDate(true);
     try {
       await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, {
@@ -360,6 +373,9 @@ const ReviewManagement = () => {
       const allReviewersFinished =
         paper.reviewers?.length > 0 &&
         paper.reviewers.every((r) => r.status === "reviewed");
+      // Once a final decision has been made, the deadline no longer matters either
+      const hasFinalDecision = Boolean(paper.decision) && paper.decision !== "pending";
+      const dueDateIrrelevant = allReviewersFinished || hasFinalDecision;
 
       return (
         <Card key={currentPaperId} className="overflow-hidden">
@@ -386,8 +402,8 @@ const ReviewManagement = () => {
                   Reviewed by Editor
                 </span>
               )}
-              {/* Only show due date in header if there are still pending reviewers */}
-              {paperDueDate && !allReviewersFinished && (
+              {/* Only show due date in header if it's still relevant */}
+              {paperDueDate && !dueDateIrrelevant && (
                 <span
                   className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
                     getDueDateStatus(paperDueDate) === "overdue"
@@ -656,6 +672,7 @@ const ReviewManagement = () => {
                   <input
                     type="datetime-local"
                     value={dueDateInputs[currentPaperId] || ""}
+                    min={getLocalDateTimeNow()}
                     onChange={(e) =>
                       setDueDateInputs((prev) => ({ ...prev, [currentPaperId]: e.target.value }))
                     }
@@ -698,8 +715,13 @@ const ReviewManagement = () => {
               ) : (
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <div>
-                    {paperDueDate && !allReviewersFinished ? (
+                    {paperDueDate && !dueDateIrrelevant ? (
                       <DueDatePill dueDateUTC={paperDueDate} />
+                    ) : hasFinalDecision ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground font-medium">
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        Decision finalized
+                      </span>
                     ) : paperDueDate && allReviewersFinished ? (
                       <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium">
                         <CheckCircle className="h-3.5 w-3.5" />
@@ -714,6 +736,14 @@ const ReviewManagement = () => {
                     variant="outline"
                     className="h-7 px-2 text-xs shrink-0"
                     onClick={() => handleEditDueDate(currentPaperId, paperDueDate)}
+                    disabled={dueDateIrrelevant}
+                    title={
+                      hasFinalDecision
+                        ? "A final decision has already been made"
+                        : allReviewersFinished
+                        ? "All reviews are already submitted"
+                        : undefined
+                    }
                   >
                     <Pencil className="h-3 w-3 mr-1" />
                     {paperDueDate ? "Edit" : "Set"}

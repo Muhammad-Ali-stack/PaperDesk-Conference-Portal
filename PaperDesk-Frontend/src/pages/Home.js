@@ -498,7 +498,7 @@ const Home = () => {
           {/* FIX 1: replaced "redefining Excellence in" with professional academic text */}
           <span className="h1a">Advancing Research in</span>
           <span className="h1b"><TypewriterWord /></span>
-          <p className="hero-sub">The all-in-one platform connecting researchers, reviewers, and organizers for world-class academic events.</p>
+          <p className="hero-sub">The all-in-one platform connecting researchers, reviewers, and editors for world-class academic events.</p>
           <div className="hero-btns">
             {/* FIX 2: removed arrows from both buttons */}
             {isLoggedIn ? (
@@ -578,7 +578,7 @@ const Home = () => {
             <div {...anim("miss-l")}>
               <span className="miss-label">Our Mission</span>
               <h2 className="miss-title">We exist to <em>simplify</em><br />academic exchange</h2>
-              <p className="miss-body">Conference management shouldn't require a PhD in logistics. We built PaperDesk to give organizers their time back and give researchers a frictionless path from idea to publication.</p>
+              <p className="miss-body">Conference management shouldn't require a PhD in logistics. We built PaperDesk to give editors their time back and give researchers a frictionless path from idea to publication.</p>
               <div className="miss-pills">
                 {missionPills.map(p => <span key={p} className="miss-pill">{p}</span>)}
               </div>

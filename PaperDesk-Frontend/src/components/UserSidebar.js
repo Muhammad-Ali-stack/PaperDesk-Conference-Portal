@@ -148,7 +148,6 @@ const UserSidebar = () => {
 
           {/* General section -- always visible to every logged-in user */}
           <SectionLabel label="General" expanded={expanded} />
-          <NavItem to="/userdashboard/user-dashboard" icon={LayoutDashboard} label="Dashboard"      expanded={expanded} />
           <NavItem to="/userdashboard/user-profile"   icon={User}            label="Profile"        expanded={expanded} />
           <NavItem to="/userdashboard/roles"          icon={Settings}        label="My Conferences" expanded={expanded} />
 

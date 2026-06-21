@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Lock } from "lucide-react";
 
 const SectionTitle = ({ children }) => (
   <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 pb-2 border-b">
@@ -187,7 +187,8 @@ const EditConference = () => {
     try {
       const payload = {
         conferenceName: formData.conference_name,
-        acronym: formData.acronym,
+        // acronym intentionally omitted — it is immutable once a conference is created,
+        // since it is bound to existing manuscript IDs.
         webPage: formData.web_page,
         venue: formData.venue,
         city: formData.city,
@@ -281,8 +282,20 @@ const EditConference = () => {
                           <Input name="conference_name" value={formData.conference_name} onChange={handleChange} required />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>Acronym *</Label>
-                          <Input name="acronym" value={formData.acronym} onChange={handleChange} required />
+                          <Label className="flex items-center gap-1.5">
+                            Acronym
+                            <Lock className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+                          </Label>
+                          <Input
+                            name="acronym"
+                            value={formData.acronym}
+                            disabled
+                            readOnly
+                            className="bg-muted/40 cursor-not-allowed text-muted-foreground"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            The acronym can't be changed after creation, since it's bound to existing manuscript IDs.
+                          </p>
                         </div>
                         <div className="space-y-1.5">
                           <Label>Website</Label>

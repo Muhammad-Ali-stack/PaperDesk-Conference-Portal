@@ -246,7 +246,8 @@ const AssignPapersPage = () => {
       return;
     }
 
-    if (!existingPlagiarismScore) {
+    // Validate plagiarism score if not already recorded
+    if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
       const raw = plagiarismScore.toString().trim();
       const parsed = parseFloat(raw);
       if (raw === "" || isNaN(parsed) || parsed < 0 || parsed > 100) {
@@ -276,7 +277,9 @@ const AssignPapersPage = () => {
         }
 
         const body = { paperId, reviewerIds: chosenIds, conferenceId };
-        if (!existingPlagiarismScore) body.plagiarismScore = parseFloat(plagiarismScore);
+        if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
+          body.plagiarismScore = parseFloat(plagiarismScore);
+        }
 
         if (dueDate) {
           body.dueDate = dueDate;
@@ -313,7 +316,7 @@ const AssignPapersPage = () => {
           commentsForAuthors: organizerCommentsForAuthors,
         };
 
-        if (!existingPlagiarismScore) {
+        if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
           decisionPayload.plagiarismScore = parseFloat(plagiarismScore);
         }
 
@@ -389,7 +392,7 @@ const AssignPapersPage = () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Table renderer
+  // Table renderer (corrected)
   // ---------------------------------------------------------------------------
   const renderPapersTable = (papersList) => (
     <div className="overflow-x-auto">
@@ -413,8 +416,7 @@ const AssignPapersPage = () => {
               const assignedCount = assignmentsByPaper[pid]?.assignedCount || 0;
               const isFull = assignedCount >= 3;
               const displayPlagScore = paper.organizer_plagiarism_score ?? paper.plagiarism_score;
-              const hasPlagScore =
-                displayPlagScore !== null && displayPlagScore !== undefined;
+              const hasPlagScore = displayPlagScore !== null && displayPlagScore !== undefined;
               return (
                 <tr key={pid || i} className="hover:bg-muted/30 transition-colors">
                   <td className="px-6 py-4 text-sm">{i + 1}</td>
@@ -445,9 +447,17 @@ const AssignPapersPage = () => {
                   </td>
                   <td className="px-6 py-4 text-sm">
                     {hasPlagScore ? (
-                      <span className="text-green-600 dark:text-green-400 font-medium">
+                      <Badge
+                        className={
+                          displayPlagScore <= 15
+                            ? "bg-green-100 text-green-800 border-green-300"
+                            : displayPlagScore <= 30
+                            ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+                            : "bg-red-100 text-red-800 border-red-300"
+                        }
+                      >
                         {displayPlagScore}%
-                      </span>
+                      </Badge>
                     ) : (
                       <span className="text-red-500 text-xs font-semibold">Required</span>
                     )}
