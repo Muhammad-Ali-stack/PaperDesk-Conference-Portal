@@ -1,6 +1,11 @@
 import { useState, useEffect, useContext, createContext, useRef } from "react";
 import axios from "axios";
 
+// ── Axios global defaults ────────────────────────────────────
+// withCredentials ensures the refreshToken HttpOnly cookie is
+// always sent on every request, including cross-origin calls.
+axios.defaults.withCredentials = true;
+
 const AuthContext = createContext();
 
 const AuthProvider = ({ children }) => {
@@ -10,21 +15,26 @@ const AuthProvider = ({ children }) => {
     roles: [],
   });
   const [rolesLoaded, setRolesLoaded] = useState(false);
-  const authRef = useRef(auth);
 
-  // Keep ref in sync with state
+  // authRef lets the interceptor always read the latest auth
+  // state without needing to re-register itself on every render.
+  const authRef = useRef(auth);
   useEffect(() => {
     authRef.current = auth;
   }, [auth]);
 
-  // Set axios default header when auth.token changes
+  // ── Axios auth header ────────────────────────────────────────
   useEffect(() => {
     axios.defaults.headers.common["Authorization"] = auth?.token
       ? `Bearer ${auth.token}`
       : "";
   }, [auth.token]);
 
-  // ── Refresh interceptor (registered once on mount) ──────────
+  // ── 401 interceptor — retry once after a token refresh ──────
+  // This handles the edge case where a 30-day access token has
+  // actually expired (e.g. user left a tab open for a month).
+  // We do NOT use a polling interval because the token already
+  // lasts 30 days — polling would only cause spurious logouts.
   useEffect(() => {
     let isRefreshing = false;
     let failedQueue = [];
@@ -39,15 +49,19 @@ const AuthProvider = ({ children }) => {
       async (error) => {
         const original = error.config;
 
+        // Only intercept 401s that haven't been retried yet.
         if (error.response?.status !== 401 || original._retry) {
           return Promise.reject(error);
         }
 
-        // Don't intercept the refresh call itself
+        // Never intercept the refresh call itself — that would
+        // create an infinite loop.
         if (original.url?.includes("/auth/refresh")) {
           return Promise.reject(error);
         }
 
+        // If a refresh is already in flight, queue this request
+        // and resolve it once the refresh completes.
         if (isRefreshing) {
           return new Promise((resolve, reject) =>
             failedQueue.push({ resolve, reject })
@@ -62,7 +76,7 @@ const AuthProvider = ({ children }) => {
 
         try {
           const userId = authRef.current?.user?._id;
-          if (!userId) throw new Error("No user id");
+          if (!userId) throw new Error("No userId available for refresh.");
 
           const { data } = await axios.post("/api/auth/refresh", { userId });
           const newToken = data.data.token;
@@ -85,6 +99,8 @@ const AuthProvider = ({ children }) => {
           processQueue(null, newToken);
           return axios(original);
         } catch (refreshError) {
+          // Refresh token itself is expired or invalid.
+          // Only now do we log the user out.
           processQueue(refreshError, null);
           setAuth({ user: null, token: "", roles: [] });
           localStorage.removeItem("auth");
@@ -100,49 +116,9 @@ const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptorId);
   }, []);
 
-  // ── Proactive token refresh every 13 minutes ────────────────
-  // Access token expires in 15 min, so we refresh 2 min early
-  // to prevent logout during inactivity.
-  useEffect(() => {
-    const REFRESH_INTERVAL_MS = 13 * 60 * 1000;
-
-    const intervalId = setInterval(async () => {
-      const userId = authRef.current?.user?._id;
-      const token = authRef.current?.token;
-
-      // Only refresh if the user is logged in
-      if (!userId || !token) return;
-
-      try {
-        const { data } = await axios.post("/api/auth/refresh", { userId });
-        const newToken = data.data.token;
-        const newUser = data.data.user;
-        const newRoles = data.data.roles;
-
-        setAuth((prev) => {
-          const updated = {
-            ...prev,
-            token: newToken,
-            user: newUser ?? prev.user,
-            roles: newRoles ?? prev.roles,
-          };
-          localStorage.setItem("auth", JSON.stringify(updated));
-          return updated;
-        });
-
-        axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
-      } catch (err) {
-        // Refresh token expired or invalid — log the user out
-        setAuth({ user: null, token: "", roles: [] });
-        localStorage.removeItem("auth");
-        delete axios.defaults.headers.common["Authorization"];
-        window.location.href = "/login";
-      }
-    }, REFRESH_INTERVAL_MS);
-
-    return () => clearInterval(intervalId);
-  }, []);
-
+  // ── Fetch roles from server ──────────────────────────────────
+  // silent = true means we already have cached roles and don't
+  // want to flash a loading state — we just update in the background.
   const fetchRoles = async (userId, silent = false) => {
     try {
       if (!silent) setRolesLoaded(false);
@@ -150,43 +126,48 @@ const AuthProvider = ({ children }) => {
       if (res.status === 200 && res.data.success) {
         const fetchedRoles = res.data.data?.roles || [];
         setAuth((prev) => {
-          const updatedAuth = {
-            ...prev,
-            roles: fetchedRoles,
-          };
-          localStorage.setItem("auth", JSON.stringify(updatedAuth));
-          return updatedAuth;
+          const updated = { ...prev, roles: fetchedRoles };
+          localStorage.setItem("auth", JSON.stringify(updated));
+          return updated;
         });
         return fetchedRoles;
       }
     } catch (error) {
-      console.error("Error fetching user roles:", error);
+      console.error("[AuthContext] Error fetching user roles:", error);
     } finally {
       setRolesLoaded(true);
     }
     return [];
   };
 
-  // ── Hydrate from localStorage on page load ──────────────────
+  // ── Hydrate from localStorage on first load ──────────────────
+  // We immediately restore the cached session so the UI doesn't
+  // flash a logged-out state, then refresh roles from the server
+  // in the background to catch any permission changes.
   useEffect(() => {
-    const data = localStorage.getItem("auth");
-    if (data) {
-      const parseData = JSON.parse(data);
-      const cachedRoles = parseData.roles || [];
+    const stored = localStorage.getItem("auth");
+
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const cachedRoles = parsed.roles || [];
       const hasCachedRoles = cachedRoles.length > 0;
 
       setAuth({
-        user: parseData.user,
-        token: parseData.token,
+        user: parsed.user,
+        token: parsed.token,
         roles: cachedRoles,
       });
 
+      // If we have cached roles, mark as loaded immediately so
+      // the app doesn't block rendering on a network call.
       if (hasCachedRoles) {
         setRolesLoaded(true);
       }
 
-      if (parseData?.user?._id) {
-        fetchRoles(parseData.user._id, hasCachedRoles);
+      // Always re-fetch roles from server in the background to
+      // stay in sync, but do it silently if we have cached data.
+      if (parsed?.user?._id) {
+        fetchRoles(parsed.user._id, hasCachedRoles);
       } else {
         setRolesLoaded(true);
       }

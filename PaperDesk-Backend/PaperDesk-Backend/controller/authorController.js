@@ -23,32 +23,52 @@ export const submitPaperController = async (req, res) => {
     } = req.body;
     let { authors } = req.body;
 
-    // Validate required fields FIRST
-    if (!userId) {
+    // ── 1. Required field validation ─────────────────────────────
+    if (!userId)
       return res.status(400).json({ success: false, message: "User ID is required." });
-    }
-    if (!conferenceId) {
-      return res.status(400).json({ success: false, message: "Conference ID is required." });
-    }
-    if (!title || !abstract || !keywords || !conferenceAcronym) {
-      return res.status(400).json({ success: false, message: "All paper details are required." });
-    }
 
-    // Block organizers (Editors) from submitting — after userId is confirmed present
+    if (!conferenceId)
+      return res.status(400).json({ success: false, message: "Conference ID is required." });
+
+    if (!title || !abstract || !keywords || !conferenceAcronym)
+      return res.status(400).json({ success: false, message: "All paper details are required." });
+
+    // ── 2. Title must be at least 3 words ────────────────────────
+    const titleWords = title.trim().split(/\s+/).filter(Boolean);
+    if (titleWords.length < 3)
+      return res.status(400).json({ success: false, message: "Title must be at least 3 words." });
+
+    // ── 3. Abstract word count (100–300) ─────────────────────────
+    const abstractWords = abstract.trim().split(/\s+/).filter(Boolean);
+    if (abstractWords.length < 100 || abstractWords.length > 300)
+      return res.status(400).json({
+        success: false,
+        message: `Abstract must be between 100 and 300 words. You sent ${abstractWords.length}.`,
+      });
+
+    // ── 4. Keywords max 8 ────────────────────────────────────────
+    const keywordsArr = (typeof keywords === "string" ? keywords : keywords.join(","))
+      .split(",")
+      .map((kw) => kw.trim())
+      .filter(Boolean);
+
+    if (keywordsArr.length > 8)
+      return res.status(400).json({ success: false, message: "Maximum 8 keywords allowed." });
+
+    // ── 5. Block organizers from submitting ──────────────────────
     const { data: userRoles } = await supabase
       .from("user_conference_roles")
       .select("role")
       .eq("user_id", userId);
 
     const isOrganizer = (userRoles || []).some((r) => r.role === "organizer");
-    if (isOrganizer) {
+    if (isOrganizer)
       return res.status(403).json({
         success: false,
         message: "Editors are not permitted to submit papers.",
       });
-    }
 
-    // Parse authors if sent as JSON string
+    // ── 6. Parse authors ─────────────────────────────────────────
     if (typeof authors === "string") {
       try {
         authors = JSON.parse(authors);
@@ -57,18 +77,51 @@ export const submitPaperController = async (req, res) => {
       }
     }
 
-    // Verify conference exists
+    if (!authors || !Array.isArray(authors) || !authors.length)
+      return res.status(400).json({ success: false, message: "At least one author is required." });
+
+    // ── 7. At least one author with required fields ───────────────
+    const validAuthor = authors.find((a) => a.firstName && a.email && a.country);
+    if (!validAuthor)
+      return res.status(400).json({
+        success: false,
+        message: "At least one author must have first name, email, and country filled.",
+      });
+
+    // ── 8. No duplicate author emails ────────────────────────────
+    const authorEmails = authors
+      .map((a) => a.email?.trim().toLowerCase())
+      .filter(Boolean);
+    if (new Set(authorEmails).size !== authorEmails.length)
+      return res.status(400).json({
+        success: false,
+        message: "Duplicate author emails detected. Each author must have a unique email.",
+      });
+
+    // ── 9. Exactly one corresponding author ──────────────────────
+    const correspondingCount = authors.filter((a) => a.corresponding).length;
+    if (correspondingCount === 0)
+      return res.status(400).json({
+        success: false,
+        message: "Please select one corresponding author.",
+      });
+    if (correspondingCount > 1)
+      return res.status(400).json({
+        success: false,
+        message: "Only one corresponding author is allowed.",
+      });
+
+    // ── 10. Conference must exist ────────────────────────────────
     const { data: conference } = await supabase
       .from("conferences")
       .select("id, mode")
       .eq("id", conferenceId)
       .maybeSingle();
 
-    if (!conference) {
+    if (!conference)
       return res.status(404).json({ success: false, message: "Conference not found." });
-    }
 
-    // Check for duplicate paper title in same conference
+    // ── 11. No duplicate title within the same conference ────────
     const { data: existingPaper } = await supabase
       .from("research_papers")
       .select("id")
@@ -76,22 +129,20 @@ export const submitPaperController = async (req, res) => {
       .eq("conference_id", conferenceId)
       .maybeSingle();
 
-    if (existingPaper) {
+    if (existingPaper)
       return res.status(400).json({
         success: false,
         message: "A paper with this title already exists for this conference.",
       });
-    }
 
-    // Validate file presence and type
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "File upload is required." });
-    }
-    if (req.file.mimetype !== "application/pdf") {
-      return res.status(400).json({ success: false, message: "Invalid file type. Only PDF files are allowed." });
-    }
+    // ── 12. File must be present and a PDF ───────────────────────
+    if (!req.file)
+      return res.status(400).json({ success: false, message: "PDF manuscript is required." });
 
-    // Validate PDF content
+    if (req.file.mimetype !== "application/pdf")
+      return res.status(400).json({ success: false, message: "Only PDF files are allowed." });
+
+    // ── 13. PDF content validation ───────────────────────────────
     const pdfValidation = await validatePdf(req.file.buffer, req.file.originalname);
     if (!pdfValidation.isValid) {
       return res.status(400).json({
@@ -101,7 +152,7 @@ export const submitPaperController = async (req, res) => {
       });
     }
 
-    // Upload PDF to Supabase storage
+    // ── 14. Upload PDF to Supabase storage ───────────────────────
     const fileName = `${Date.now()}_${req.file.originalname}`;
     const { error: uploadError } = await supabase.storage
       .from("paper-submissions")
@@ -111,29 +162,15 @@ export const submitPaperController = async (req, res) => {
         contentType: req.file.mimetype,
       });
 
-    if (uploadError) {
+    if (uploadError)
       return res.status(500).json({
         success: false,
-        message: `Supabase upload error: ${uploadError.message}`,
+        message: `File upload failed: ${uploadError.message}`,
       });
-    }
 
     const filePath = getSupabasePublicUrl("paper-submissions", fileName);
 
-    // Validate authors array
-    if (!authors || !Array.isArray(authors) || !authors.length) {
-      return res.status(400).json({ success: false, message: "At least one author is required." });
-    }
-
-    const validAuthor = authors.find((author) => author.firstName && author.email);
-    if (!validAuthor) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one author must have firstName and email filled.",
-      });
-    }
-
-    // Assign author role to the submitting user
+    // ── 15. Assign author role to the submitting user ────────────
     await supabase
       .from("user_conference_roles")
       .upsert(
@@ -141,12 +178,7 @@ export const submitPaperController = async (req, res) => {
         { onConflict: "user_id,conference_id,role" }
       );
 
-    // Process keywords
-    const keywordsArr = typeof keywords === "string"
-      ? keywords.split(",").map((kw) => kw.trim())
-      : keywords;
-
-    // Store validation information
+    // ── 16. Build validation info blob ───────────────────────────
     const validationInfo = {
       validated: true,
       timestamp: new Date().toISOString(),
@@ -155,17 +187,15 @@ export const submitPaperController = async (req, res) => {
       note: "IEEE compliance will be reviewed manually by conference organizers.",
     };
 
-    // Generate unique manuscript number: NED2026-<Acronym>-<n>
-    // n = total papers submitted to this conference so far + 1
+    // ── 17. Generate manuscript number: NED2026-<Acronym>-<n> ────
     const { count: paperCount } = await supabase
       .from("research_papers")
       .select("id", { count: "exact", head: true })
       .eq("conference_id", conferenceId);
 
-    const manuscriptN = (paperCount ?? 0) + 1;
-    const manuscriptNumber = `NED2026-${conferenceAcronym}-${manuscriptN}`;
+    const manuscriptNumber = `NED2026-${conferenceAcronym}-${(paperCount ?? 0) + 1}`;
 
-    // Insert paper record
+    // ── 18. Insert paper record ──────────────────────────────────
     const { data: paper, error: paperError } = await supabase
       .from("research_papers")
       .insert({
@@ -182,55 +212,65 @@ export const submitPaperController = async (req, res) => {
       .select()
       .single();
 
-    if (paperError) {
+    if (paperError)
       return res.status(500).json({
         success: false,
         message: "Error saving paper.",
         data: { error: paperError.message },
       });
-    }
 
-    // Handle authors: reuse existing or create new
-    const authorEmails = authors.map((a) => a.email).filter(Boolean);
+    // ── 19. Handle authors ───────────────────────────────────────
+    // Fetch any existing author rows by email in one query (avoids N+1).
     const { data: existingAuthors } = await supabase
       .from("authors")
       .select("id, email")
       .in("email", authorEmails);
 
-    const existingAuthorMap = new Map();
-    if (existingAuthors) {
-      existingAuthors.forEach((author) => {
-        existingAuthorMap.set(author.email, author.id);
-      });
-    }
+    const existingAuthorMap = new Map(
+      (existingAuthors || []).map((a) => [a.email.toLowerCase(), a.id])
+    );
 
-    // authorLinks carries the per-paper corresponding-author flag separately
-    // from the authors table, since corresponding status is specific to this
-    // paper, not a global property of the person.
     const authorLinks = [];
+
     for (const authorData of authors) {
-      let authorId = existingAuthorMap.get(authorData.email);
+      const emailKey = authorData.email?.trim().toLowerCase();
+      let authorId = existingAuthorMap.get(emailKey);
 
       if (!authorId) {
+        // Author not seen before — insert a new row.
+        // The UNIQUE (email) constraint on authors now prevents duplicates
+        // at the DB level even under race conditions.
         const { data: newAuthor, error: insertError } = await supabase
           .from("authors")
           .insert({
-            first_name: authorData.firstName,
-            last_name: authorData.lastName || null,
-            email: authorData.email,
-            country: authorData.country || null,
+            first_name:  authorData.firstName,
+            last_name:   authorData.lastName  || null,
+            email:       authorData.email,
+            country:     authorData.country   || null,
             affiliation: authorData.affiliation || null,
-            web_page: authorData.webPage || null,
-            user_id: userId,
+            web_page:    authorData.webPage   || null,
+            user_id:     userId,
           })
           .select("id")
           .single();
 
         if (insertError) {
-          console.error("Error inserting author:", insertError);
-          continue;
+          // If the insert raced and hit the UNIQUE constraint, fetch
+          // the existing row instead of failing the whole submission.
+          if (insertError.code === "23505") {
+            const { data: raceAuthor } = await supabase
+              .from("authors")
+              .select("id")
+              .eq("email", authorData.email)
+              .single();
+            authorId = raceAuthor?.id;
+          } else {
+            console.error("[submitPaper] Author insert error:", insertError.message);
+            continue;
+          }
+        } else {
+          authorId = newAuthor.id;
         }
-        authorId = newAuthor.id;
       }
 
       if (authorId) {
@@ -241,20 +281,23 @@ export const submitPaperController = async (req, res) => {
       }
     }
 
-    // Link authors to paper, including the per-paper corresponding-author flag
+    // ── 20. Link authors to paper ────────────────────────────────
+    // corresponding_author is stored on paper_authors (not authors)
+    // because a person can be corresponding on one paper but not another.
     if (authorLinks.length > 0) {
       await supabase.from("paper_authors").insert(
         authorLinks.map(({ authorId, corresponding }) => ({
-          paper_id: paper.id,
-          author_id: authorId,
+          paper_id:             paper.id,
+          author_id:            authorId,
           corresponding_author: corresponding,
         }))
       );
     }
 
-    // Send confirmation emails (non-blocking)
-    const authorEmailsList = authors.map((a) => a.email).filter(Boolean);
-    if (authorEmailsList.length > 0) {
+    // ── 21. Send confirmation emails (non-blocking) ───────────────
+    const uniqueEmailList = [...new Set(authors.map((a) => a.email).filter(Boolean))];
+
+    if (uniqueEmailList.length > 0) {
       const submissionEmailHtml = `
         <!DOCTYPE html>
         <html lang="en">
@@ -277,6 +320,7 @@ export const submitPaperController = async (req, res) => {
                       <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#4B707A;text-transform:uppercase;letter-spacing:0.5px;">Submission Details</p>
                       <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Title:</strong> ${title}</p>
                       <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Conference:</strong> ${conferenceName || conferenceAcronym}</p>
+                      <p style="margin:0 0 4px;font-size:14px;color:#374151;"><strong>Manuscript No:</strong> ${manuscriptNumber}</p>
                       <p style="margin:0;font-size:14px;color:#374151;"><strong>Status:</strong> Pending Review</p>
                     </div>
                     <p style="margin:0;font-size:13px;color:#9ca3af;">You will receive further updates as your paper progresses through the review process.</p>
@@ -284,7 +328,7 @@ export const submitPaperController = async (req, res) => {
                 </tr>
                 <tr>
                   <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
-                    <p style="margin:0;font-size:12px;color:#9ca3af;">Copyright ${new Date().getFullYear()} PaperDesk - Conference Management System</p>
+                    <p style="margin:0;font-size:12px;color:#9ca3af;">&copy; ${new Date().getFullYear()} PaperDesk &mdash; Conference Management System</p>
                   </td>
                 </tr>
               </table>
@@ -293,8 +337,9 @@ export const submitPaperController = async (req, res) => {
         </body>
         </html>
       `;
+
       Promise.all(
-        authorEmailsList.map((email) =>
+        uniqueEmailList.map((email) =>
           sendMail({
             type: "paper",
             to: email,
@@ -302,7 +347,7 @@ export const submitPaperController = async (req, res) => {
             html: submissionEmailHtml,
           })
         )
-      ).catch((err) => console.error("Error sending confirmation emails:", err));
+      ).catch((err) => console.error("[submitPaper] Confirmation email error:", err));
     }
 
     return res.status(201).json({
@@ -311,7 +356,7 @@ export const submitPaperController = async (req, res) => {
       data: { paper, validation: validationInfo },
     });
   } catch (error) {
-    console.error("submitPaperController error:", error);
+    console.error("[submitPaper] Unexpected error:", error.message);
     return res.status(500).json({
       success: false,
       message: "Error submitting paper.",

@@ -4,15 +4,21 @@ import bcrypt from "bcrypt";
 import supabase from "../config/supabase.js";
 import { sendMail, isEmailReady } from "../config/mailer.js";
 
+// ── Constants ────────────────────────────────────────────────
 const OTP_EXPIRY_MINUTES = 10;
-const ACCESS_TOKEN_EXPIRY = "30d";
-const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+const ACCESS_TOKEN_EXPIRY = "30d";   // Access token lasts 30 days
+const REFRESH_TOKEN_EXPIRY_DAYS = 30; // Refresh token (cookie) lasts 30 days
 const MAX_OTP_ATTEMPTS = 10;
+
+// ── Helpers ──────────────────────────────────────────────────
 
 const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 
 const thirtyDaysMs = () => REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
+/**
+ * Builds the OTP email HTML body.
+ */
 const otpEmailHtml = (name, otp) => `
 <!DOCTYPE html>
 <html lang="en">
@@ -55,7 +61,7 @@ const otpEmailHtml = (name, otp) => `
 `;
 
 /**
- * Fetches all non-expired trusted device records for a user.
+ * Returns all non-expired trusted device records for a user.
  */
 const getActiveTrustedDevices = async (userId) => {
   const { data } = await supabase
@@ -67,7 +73,7 @@ const getActiveTrustedDevices = async (userId) => {
 };
 
 /**
- * Fetches the user's conference roles.
+ * Returns all conference roles for a user.
  */
 const getUserRoles = async (userId) => {
   const { data: userRoles } = await supabase
@@ -82,7 +88,8 @@ const getUserRoles = async (userId) => {
 };
 
 /**
- * Sets the refresh token as an HttpOnly cookie on the response.
+ * Sets the refresh token as an HttpOnly, Secure, SameSite=Strict cookie.
+ * This cookie is never accessible from JavaScript, protecting it from XSS.
  */
 const setRefreshCookie = (res, token) => {
   res.cookie("refreshToken", token, {
@@ -95,7 +102,7 @@ const setRefreshCookie = (res, token) => {
 };
 
 /**
- * Clears the refresh token cookie.
+ * Removes the refresh token cookie from the client.
  */
 const clearRefreshCookie = (res) => {
   res.clearCookie("refreshToken", { path: "/" });
@@ -117,10 +124,13 @@ export const registerController = async (req, res) => {
       invitationToken,
     } = req.body;
 
-    if (!name) return res.status(400).json({ success: false, message: "Name is required." });
+    if (!name)  return res.status(400).json({ success: false, message: "Name is required." });
     if (!email) return res.status(400).json({ success: false, message: "Email is required." });
     if (!phone) return res.status(400).json({ success: false, message: "Phone is required." });
 
+    /**
+     * Looks up a pending invitation either by token or by email+role.
+     */
     const findInvitation = async (roleFilter) => {
       if (invitationToken) {
         const { data } = await supabase
@@ -142,6 +152,7 @@ export const registerController = async (req, res) => {
       return data;
     };
 
+    // Organizer registrations always require a valid invitation.
     if (role === "organizer") {
       const invitation = await findInvitation("organizer");
       if (!invitation) {
@@ -155,6 +166,7 @@ export const registerController = async (req, res) => {
       .eq("email", email)
       .maybeSingle();
 
+    // ── Existing user — add a new role instead of re-registering ──
     if (existingUser) {
       if (!role || (role !== "reviewer" && role !== "organizer")) {
         return res.status(409).json({
@@ -188,7 +200,6 @@ export const registerController = async (req, res) => {
           return res.status(403).json({ success: false, message: "No valid organizer invitation found." });
         }
 
-        // FIX: store the actual conference_id from the invitation, not null
         const { error: upsertError } = await supabase
           .from("user_conference_roles")
           .insert({
@@ -202,6 +213,7 @@ export const registerController = async (req, res) => {
         }
 
         await supabase.from("invitations").update({ status: "accepted" }).eq("id", invitation.id);
+
         return res.status(200).json({
           success: true,
           message: "Organizer role added to existing account.",
@@ -215,6 +227,7 @@ export const registerController = async (req, res) => {
       });
     }
 
+    // ── New user ─────────────────────────────────────────────────
     const { data: savedUser, error: insertError } = await supabase
       .from("users")
       .insert({ name, email, phone, ...(address && { address }) })
@@ -239,11 +252,11 @@ export const registerController = async (req, res) => {
     if (role === "organizer") {
       const invitation = await findInvitation("organizer");
       if (!invitation) {
+        // Roll back the user insert if the invitation check fails.
         await supabase.from("users").delete().eq("id", savedUser.id);
         return res.status(403).json({ success: false, message: "No valid organizer invitation found." });
       }
 
-      // FIX: store the actual conference_id from the invitation, not null
       await supabase
         .from("user_conference_roles")
         .insert({
@@ -284,10 +297,16 @@ export const loginController = async (req, res) => {
       .maybeSingle();
 
     if (error || !user) {
-      return res.status(404).json({ success: false, message: "Email is not registered, please sign up first." });
+      return res.status(404).json({
+        success: false,
+        message: "Email is not registered, please sign up first.",
+      });
     }
 
-    // ── Invitation side-effects (role assignment) ──────────────
+    // ── Handle invitation side-effects on login ──────────────────
+    // If the user arrived via an invitation link, assign their role
+    // immediately so they don't need to do it again after logging in.
+
     if (role === "reviewer" && conferenceId) {
       const expertiseArr = expertise
         ? Array.isArray(expertise) ? expertise : [expertise]
@@ -313,7 +332,6 @@ export const loginController = async (req, res) => {
     }
 
     if (role === "organizer" && invitationToken) {
-      // FIX: also select conference_id from the invitation
       const { data: invitation } = await supabase
         .from("invitations")
         .select("id, email, conference_id")
@@ -323,7 +341,6 @@ export const loginController = async (req, res) => {
         .maybeSingle();
 
       if (invitation) {
-        // FIX: store the actual conference_id from the invitation, not null
         const { error: insertError } = await supabase
           .from("user_conference_roles")
           .insert({
@@ -341,20 +358,32 @@ export const loginController = async (req, res) => {
       }
     }
 
-    // ── Trusted device check ───────────────────────────────────
+    // ── Trusted device check ─────────────────────────────────────
+    // If the incoming request already has a valid refresh token
+    // cookie that matches a trusted device, skip OTP entirely and
+    // issue a new access token directly. This is what keeps users
+    // logged in across sessions without prompting for OTP every time.
     const rawRefreshToken = req.cookies?.refreshToken;
+
     if (rawRefreshToken) {
       const activeDevices = await getActiveTrustedDevices(user.id);
+
       for (const device of activeDevices) {
         const tokenMatch = await bcrypt.compare(rawRefreshToken, device.token_hash);
+
         if (tokenMatch) {
+          // Rotate the refresh token on every use (token rotation).
           const newRaw = crypto.randomBytes(64).toString("hex");
           const newHash = await bcrypt.hash(newRaw, 10);
           const newExpiry = new Date(Date.now() + thirtyDaysMs()).toISOString();
 
           await supabase
             .from("trusted_devices")
-            .update({ token_hash: newHash, expires_at: newExpiry, last_used_at: new Date().toISOString() })
+            .update({
+              token_hash: newHash,
+              expires_at: newExpiry,
+              last_used_at: new Date().toISOString(),
+            })
             .eq("id", device.id);
 
           const accessToken = JWT.sign({ _id: user.id }, process.env.JWT_SECRET, {
@@ -386,7 +415,7 @@ export const loginController = async (req, res) => {
       }
     }
 
-    // ── OTP flow ───────────────────────────────────────────────
+    // ── OTP flow — no trusted device found ──────────────────────
     if (!isEmailReady()) {
       return res.status(503).json({
         success: false,
@@ -443,6 +472,7 @@ export const verifyOtpController = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID and OTP are required." });
     }
 
+    // Fetch the most recent unused, non-expired OTP for this user.
     const { data: otpRecord } = await supabase
       .from("login_otps")
       .select("*")
@@ -454,9 +484,13 @@ export const verifyOtpController = async (req, res) => {
       .maybeSingle();
 
     if (!otpRecord) {
-      return res.status(401).json({ success: false, message: "Invalid or expired verification code." });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired verification code.",
+      });
     }
 
+    // Lock out after too many failed attempts.
     if (otpRecord.attempts >= MAX_OTP_ATTEMPTS) {
       await supabase.from("login_otps").update({ used: true }).eq("id", otpRecord.id);
       return res.status(401).json({
@@ -472,20 +506,32 @@ export const verifyOtpController = async (req, res) => {
         .from("login_otps")
         .update({ attempts: otpRecord.attempts + 1 })
         .eq("id", otpRecord.id);
-      return res.status(401).json({ success: false, message: "Invalid or expired verification code." });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired verification code.",
+      });
     }
 
+    // Mark OTP as used so it can't be replayed.
     await supabase.from("login_otps").update({ used: true }).eq("id", otpRecord.id);
 
-    const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+    const { data: user } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    // Issue a 30-day access token.
     const accessToken = JWT.sign({ _id: user.id }, process.env.JWT_SECRET, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     });
 
+    // Store a hashed refresh token and set it as an HttpOnly cookie.
+    // This is what makes the device "trusted" for future logins.
     const rawRefreshToken = crypto.randomBytes(64).toString("hex");
     const refreshTokenHash = await bcrypt.hash(rawRefreshToken, 10);
     const refreshExpiry = new Date(Date.now() + thirtyDaysMs()).toISOString();
@@ -504,6 +550,7 @@ export const verifyOtpController = async (req, res) => {
       success: true,
       message: "Logged in successfully.",
       data: {
+        token: accessToken,
         user: {
           _id: user.id,
           name: user.name,
@@ -513,7 +560,6 @@ export const verifyOtpController = async (req, res) => {
           role: user.role,
         },
         roles,
-        token: accessToken,
       },
     });
   } catch (error) {
@@ -537,11 +583,17 @@ export const refreshTokenController = async (req, res) => {
       return res.status(400).json({ success: false, message: "userId is required in the request body." });
     }
 
-    const { data: user } = await supabase.from("users").select("*").eq("id", userId).maybeSingle();
+    const { data: user } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    // Find which trusted device matches the incoming refresh token.
     const activeDevices = await getActiveTrustedDevices(userId);
     let matchedDevice = null;
 
@@ -561,6 +613,8 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
+    // Rotate: delete old token, issue a new one.
+    // This limits the damage window if a token is ever stolen.
     await supabase.from("trusted_devices").delete().eq("id", matchedDevice.id);
 
     const newRaw = crypto.randomBytes(64).toString("hex");
@@ -606,6 +660,9 @@ export const refreshTokenController = async (req, res) => {
 // ============================================================
 // logoutController
 // ============================================================
+// Clears the cookie but keeps the trusted_devices record so the
+// user isn't prompted for OTP on their next login. If you want
+// to fully remove the device on logout, call logoutAllDevicesController.
 export const logoutController = async (req, res) => {
   try {
     clearRefreshCookie(res);
@@ -621,6 +678,8 @@ export const logoutController = async (req, res) => {
 // ============================================================
 // logoutAllDevicesController
 // ============================================================
+// Deletes ALL trusted device records for the user, meaning OTP
+// will be required on the next login from every device.
 export const logoutAllDevicesController = async (req, res) => {
   try {
     const userId = req.user?._id || req.user?.id;
@@ -660,7 +719,10 @@ export const getInvitationByTokenController = async (req, res) => {
       .maybeSingle();
 
     if (!invitation) {
-      return res.status(404).json({ success: false, message: "Invitation not found or already used." });
+      return res.status(404).json({
+        success: false,
+        message: "Invitation not found or already used.",
+      });
     }
 
     return res.status(200).json({
@@ -687,7 +749,11 @@ export const updateProfileController = async (req, res) => {
     const { name, address, phone } = req.body;
     const userId = req.user._id || req.user.id;
 
-    const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+    const { data: user } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
