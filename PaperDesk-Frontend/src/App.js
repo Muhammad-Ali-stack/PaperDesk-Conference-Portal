@@ -4,7 +4,6 @@ import { Toaster } from "react-hot-toast";
 import axios from "axios";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
-import { Skeleton } from "./components/ui/skeleton";
 import { OrganizerConferenceProvider } from "./context/OrganizerConferenceContext";
 import UserPrivateRoute from "./routes/userAuth";
 import DashboardLayout from "./components/DashboardLayout";
@@ -48,19 +47,6 @@ const RolePrivateRoute          = lazy(() => import("./routes/roleAuth"));
 
 axios.defaults.baseURL = process.env.REACT_APP_API;
 
-const PageLoader = () => (
-  <div className="p-6 space-y-5 max-w-4xl mx-auto mt-8">
-    <Skeleton className="h-8 w-56" />
-    <Skeleton className="h-4 w-full" />
-    <Skeleton className="h-4 w-3/4" />
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-      <Skeleton className="h-36 rounded-xl" />
-      <Skeleton className="h-36 rounded-xl" />
-      <Skeleton className="h-36 rounded-xl" />
-    </div>
-  </div>
-);
-
 // Inner component so useLocation works inside the Router context
 const AppContent = () => {
   const { pathname } = useLocation();
@@ -73,7 +59,7 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       <Header />
       <main className="flex-1">
-        <Suspense fallback={<PageLoader />}>
+        <Suspense fallback={null}>
           <Routes>
             <Route path="/"                element={<Home />} />
             <Route path="/register"        element={<Register />} />
