@@ -6,6 +6,7 @@ import Layout from "../../components/Layout";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 import {
   FileText,
   CheckCircle,
@@ -48,13 +49,80 @@ const DECISION_OPTIONS = [
   },
 ];
 
-// Returns the current datetime formatted as "YYYY-MM-DDTHH:MM" for the min attribute
 const getNowLocalString = () => {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 };
 
+// ── Page-level skeleton — mirrors exact layout (header card + tabs + table) ──
+const PageSkeleton = () => (
+  <div className="flex-1 p-6 lg:p-10 overflow-auto">
+    <div className="max-w-7xl mx-auto space-y-6">
+
+      {/* Header card */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex justify-between items-center flex-wrap gap-3">
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-56" />
+              <Skeleton className="h-4 w-96" />
+            </div>
+            <Skeleton className="h-9 w-24 rounded-md" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs + table skeleton */}
+      <Card>
+        <CardContent className="p-0">
+          {/* Tab bar */}
+          <div className="border-b border-border px-6 pt-4 pb-0 flex gap-6">
+            <Skeleton className="h-8 w-44 rounded" />
+            <Skeleton className="h-8 w-40 rounded" />
+          </div>
+
+          {/* Table header */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  {["#", "Title", "Keywords", "Authors", "Submitted", "Status", "Plagiarism %", "Assigned", "Paper", "Action"].map((h) => (
+                    <th key={h} className="text-left px-6 py-4">
+                      <Skeleton className="h-3 w-16" />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-4" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-48" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-32" /></td>
+                    <td className="px-6 py-4">
+                      <Skeleton className="h-4 w-36 mb-1" />
+                      <Skeleton className="h-3 w-28" />
+                    </td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-20" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-5 w-12 rounded-full" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-5 w-10 rounded-full" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-16" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-8 w-24 rounded-md" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+    </div>
+  </div>
+);
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 const AssignPapersPage = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
   const [papers, setPapers] = useState([]);
@@ -77,13 +145,12 @@ const AssignPapersPage = () => {
   const [updatingDueDate, setUpdatingDueDate] = useState(false);
   const intervalRef = useRef(null);
 
-  // Auto-detect organizer's timezone from browser — no user input needed
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const getPaperId = (paper) => paper?.id || paper?._id || null;
 
   // ---------------------------------------------------------------------------
-  // Core data fetching: papers + assignments
+  // Core data fetching
   // ---------------------------------------------------------------------------
   const fetchAllData = useCallback(async (silent = false) => {
     if (!conferenceId) return;
@@ -138,17 +205,11 @@ const AssignPapersPage = () => {
   useEffect(() => {
     if (!conferenceId) return;
     fetchAllData(false);
-    intervalRef.current = setInterval(() => {
-      fetchAllData(true);
-    }, 30000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
+    intervalRef.current = setInterval(() => fetchAllData(true), 30000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [conferenceId, fetchAllData]);
 
-  const handleManualRefresh = () => {
-    fetchAllData(false);
-  };
+  const handleManualRefresh = () => fetchAllData(false);
 
   // ---------------------------------------------------------------------------
   // Modal handlers
@@ -180,7 +241,6 @@ const AssignPapersPage = () => {
       setAssignedReviewerIds((pa?.reviewers || []).map((r) => r.reviewerId));
       setAssignedReviewersCount(pa?.assignedCount || 0);
 
-      // Pre-fill due date if one already exists for this paper (convert UTC -> local)
       if (pa?.dueDate) {
         const localDt = new Date(pa.dueDate);
         const pad = (n) => String(n).padStart(2, "0");
@@ -214,23 +274,16 @@ const AssignPapersPage = () => {
     setSelectedReviewers(["", "", ""]);
   };
 
-  // Update due date for already-assigned reviewers without re-assigning
   const handleUpdateDueDate = async () => {
     const paperId = getPaperId(selectedPaper);
     if (!paperId) return;
-
-    // Guard: due date must be in the future
     if (dueDate && new Date(dueDate) <= new Date()) {
       toast.error("Due date must be in the future.");
       return;
     }
-
     setUpdatingDueDate(true);
     try {
-      await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, {
-        dueDate,
-        timezone,
-      });
+      await axios.patch(`/api/organizer/assignments/${paperId}/due-date`, { dueDate, timezone });
       toast.success("Due date updated for all reviewers.");
     } catch {
       toast.error("Failed to update due date.");
@@ -241,12 +294,8 @@ const AssignPapersPage = () => {
 
   const handleSubmit = async () => {
     const paperId = getPaperId(selectedPaper);
-    if (!paperId) {
-      toast.error("Paper ID missing.");
-      return;
-    }
+    if (!paperId) { toast.error("Paper ID missing."); return; }
 
-    // Validate plagiarism score if not already recorded
     if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
       const raw = plagiarismScore.toString().trim();
       const parsed = parseFloat(raw);
@@ -256,7 +305,6 @@ const AssignPapersPage = () => {
       }
     }
 
-    // Guard: due date must be in the future if one was set
     if (dueDate && new Date(dueDate) <= new Date()) {
       toast.error("Due date must be in the future.");
       return;
@@ -265,9 +313,6 @@ const AssignPapersPage = () => {
     setSubmitting(true);
 
     try {
-      // -----------------------------------------------------------------------
-      // Mode A: Assign Reviewers
-      // -----------------------------------------------------------------------
       if (modalMode === "assign_reviewers") {
         const chosenIds = selectedReviewers.slice(0, 3 - assignedReviewersCount).filter((r) => r !== "");
         if (chosenIds.length === 0) {
@@ -275,16 +320,11 @@ const AssignPapersPage = () => {
           setSubmitting(false);
           return;
         }
-
         const body = { paperId, reviewerIds: chosenIds, conferenceId };
         if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
           body.plagiarismScore = parseFloat(plagiarismScore);
         }
-
-        if (dueDate) {
-          body.dueDate = dueDate;
-          body.timezone = timezone;
-        }
+        if (dueDate) { body.dueDate = dueDate; body.timezone = timezone; }
 
         const res = await axios.post("/api/organizer/assign-paper-manual", body);
         if (res.data.success) {
@@ -300,28 +340,21 @@ const AssignPapersPage = () => {
         }
       }
 
-      // -----------------------------------------------------------------------
-      // Mode B: Review Myself
-      // -----------------------------------------------------------------------
       if (modalMode === "give_decision") {
         if (!organizerDecision) {
           toast.error("Please select a decision.");
           setSubmitting(false);
           return;
         }
-
         const decisionPayload = {
           paperId,
           decision: organizerDecision,
           commentsForAuthors: organizerCommentsForAuthors,
         };
-
         if (existingPlagiarismScore === null || existingPlagiarismScore === undefined) {
           decisionPayload.plagiarismScore = parseFloat(plagiarismScore);
         }
-
         const decRes = await axios.post("/api/organizer/update-decision", decisionPayload);
-
         const decisionSaved =
           decRes.data.success === true ||
           (decRes.status >= 200 && decRes.status < 300 && !decRes.data.error);
@@ -343,7 +376,7 @@ const AssignPapersPage = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Derived states and filtering
+  // Derived states
   // ---------------------------------------------------------------------------
   const plagiarismSatisfied =
     existingPlagiarismScore !== null && existingPlagiarismScore !== undefined;
@@ -392,7 +425,7 @@ const AssignPapersPage = () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Table renderer (corrected)
+  // Table renderer
   // ---------------------------------------------------------------------------
   const renderPapersTable = (papersList) => (
     <div className="overflow-x-auto">
@@ -475,9 +508,7 @@ const AssignPapersPage = () => {
                       >
                         <FileText className="h-3 w-3" /> View PDF
                       </a>
-                    ) : (
-                      "-"
-                    )}
+                    ) : "-"}
                   </td>
                   <td className="px-6 py-4 text-sm">
                     {isFull ? (
@@ -507,13 +538,23 @@ const AssignPapersPage = () => {
     </div>
   );
 
+  // ── Show page skeleton while initial data loads ────────────────────────────
+  if (loadingPapers) {
+    return (
+      <Layout title="PaperDesk - Assign Papers">
+        <PageSkeleton />
+      </Layout>
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // Render
+  // Main render
   // ---------------------------------------------------------------------------
   return (
     <Layout title="PaperDesk - Assign Papers">
       <div className="flex-1 p-6 lg:p-10 overflow-auto">
         <div className="max-w-7xl mx-auto">
+
           {/* Header */}
           <Card className="mb-6">
             <CardContent className="p-6">
@@ -575,28 +616,19 @@ const AssignPapersPage = () => {
                   </TabsList>
                 </div>
                 <TabsContent value="unassigned" className="mt-0">
-                  {loadingPapers ? (
-                    <div className="p-6 text-center text-muted-foreground">Loading papers...</div>
-                  ) : (
-                    renderPapersTable(unassignedPapers)
-                  )}
+                  {renderPapersTable(unassignedPapers)}
                 </TabsContent>
                 <TabsContent value="assigned" className="mt-0">
-                  {loadingPapers ? (
-                    <div className="p-6 text-center text-muted-foreground">Loading papers...</div>
-                  ) : (
-                    renderPapersTable(assignedPapers)
-                  )}
+                  {renderPapersTable(assignedPapers)}
                 </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
+
         </div>
       </div>
 
-      {/* -----------------------------------------------------------------------
-          Modal
-      ----------------------------------------------------------------------- */}
+      {/* ── Modal ─────────────────────────────────────────────────────────── */}
       {selectedPaper && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
           <div className="bg-background rounded-lg shadow-xl max-w-lg w-full border border-border max-h-[92vh] flex flex-col">
@@ -608,9 +640,7 @@ const AssignPapersPage = () => {
                   {selectedPaper.title}
                 </p>
                 {selectedPaper.status === "resubmitted" && (
-                  <Badge variant="info" className="mt-1">
-                    Resubmission
-                  </Badge>
+                  <Badge variant="info" className="mt-1">Resubmission</Badge>
                 )}
               </div>
               <button
@@ -671,11 +701,7 @@ const AssignPapersPage = () => {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <StepCircle number={2} active={plagiarismInputValid} />
-                  <span
-                    className={`text-sm font-medium ${
-                      plagiarismInputValid ? "text-foreground" : "text-muted-foreground"
-                    }`}
-                  >
+                  <span className={`text-sm font-medium ${plagiarismInputValid ? "text-foreground" : "text-muted-foreground"}`}>
                     What would you like to do?
                   </span>
                 </div>
@@ -712,8 +738,6 @@ const AssignPapersPage = () => {
                     {slotsAvailable} slot{slotsAvailable !== 1 ? "s" : ""} available — Currently
                     assigned: {assignedReviewersCount}/3
                   </p>
-
-                  {/* Reviewer dropdowns */}
                   {Array.from({ length: Math.min(slotsAvailable, 3) }).map((_, slotIndex) => {
                     const excludedIds = getExcludedIds(slotIndex);
                     return (
@@ -746,20 +770,16 @@ const AssignPapersPage = () => {
                       </select>
                     );
                   })}
-
                   {availableReviewers.some((r) => r.isConflict) && (
                     <p className="text-xs text-amber-600 flex items-center gap-1">
                       ⚠ Reviewers marked "Conflict of interest" are authors of this paper and cannot be assigned.
                     </p>
                   )}
-
                   {!atLeastOneReviewerChosen && (
-                    <p className="text-xs text-amber-600">
-                      Select at least one reviewer to proceed.
-                    </p>
+                    <p className="text-xs text-amber-600">Select at least one reviewer to proceed.</p>
                   )}
 
-                  {/* ── Due Date field ── */}
+                  {/* Due Date */}
                   <div className="pt-1">
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -778,8 +798,6 @@ const AssignPapersPage = () => {
                         Your timezone · {timezone}
                       </span>
                     </div>
-
-                    {/* min set to current datetime — browser blocks past date selection */}
                     <input
                       type="datetime-local"
                       value={dueDate}
@@ -788,8 +806,6 @@ const AssignPapersPage = () => {
                       disabled={submitting}
                       className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 text-foreground"
                     />
-
-                    {/* Show "Update Due Date" button only when paper already has reviewers */}
                     {assignedReviewersCount > 0 && (
                       <button
                         type="button"
@@ -821,9 +837,7 @@ const AssignPapersPage = () => {
                         disabled={submitting}
                         onClick={() => setOrganizerDecision(opt.value)}
                         className={`w-full flex items-center gap-3 rounded-md border px-4 py-2.5 text-sm font-medium transition-all ${
-                          isSelected
-                            ? opt.selected
-                            : `${opt.border} ${opt.text} ${opt.hover}`
+                          isSelected ? opt.selected : `${opt.border} ${opt.text} ${opt.hover}`
                         }`}
                       >
                         <Icon className="h-4 w-4 flex-shrink-0" />
@@ -834,7 +848,6 @@ const AssignPapersPage = () => {
                       </button>
                     );
                   })}
-
                   <div className="space-y-2 mt-4">
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                       Comments for Authors (optional)
@@ -854,11 +867,7 @@ const AssignPapersPage = () => {
 
             {/* Modal footer */}
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-border bg-muted/20 flex-shrink-0">
-              <Button
-                variant="outline"
-                onClick={() => setSelectedPaper(null)}
-                disabled={submitting}
-              >
+              <Button variant="outline" onClick={() => setSelectedPaper(null)} disabled={submitting}>
                 Cancel
               </Button>
               <Button onClick={handleSubmit} disabled={!canSubmit}>
@@ -921,11 +930,7 @@ const ModeCard = ({ active, onClick, icon: Icon, title, description, disabled })
         )}
       </span>
       <Icon className={`h-4 w-4 ${active ? "text-teal-600" : "text-muted-foreground"}`} />
-      <span
-        className={`text-sm font-semibold ${
-          active ? "text-teal-700 dark:text-teal-400" : "text-foreground"
-        }`}
-      >
+      <span className={`text-sm font-semibold ${active ? "text-teal-700 dark:text-teal-400" : "text-foreground"}`}>
         {title}
       </span>
     </div>

@@ -176,12 +176,10 @@ function ConferenceCreationForm() {
   };
 
   // ---------------------------------------------------------------------------
-  // Validates all four date fields for logical consistency:
-  //   - No date may be in the past.
+  // Validates date fields for logical consistency:
   //   - End date must be after start date.
   //   - Abstract deadline must be before the conference ends.
   //   - Submission deadline must fall within the conference window.
-  // Returns false and shows a toast for the first violation found.
   // ---------------------------------------------------------------------------
   const validateDates = () => {
     const { startDate, endDate, abstractDeadline, submissionDeadline } = formData;
@@ -191,15 +189,8 @@ function ConferenceCreationForm() {
     const abstract = new Date(abstractDeadline);
     const submission = new Date(submissionDeadline);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     if (!startDate || !endDate || !abstractDeadline || !submissionDeadline) {
       toast.error("All date fields are required.");
-      return false;
-    }
-    if (start < today || end < today || abstract < today || submission < today) {
-      toast.error("Dates must not be in the past.");
       return false;
     }
     if (end < start) {

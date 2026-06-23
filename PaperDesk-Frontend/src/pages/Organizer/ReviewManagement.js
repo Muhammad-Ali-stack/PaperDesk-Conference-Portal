@@ -23,11 +23,11 @@ import {
   CheckCircle,
   XCircle,
   Search,
+  AlertCircle,
 } from "lucide-react";
 
-// -----------------------------------------------------------------------------
-// Due Date Helpers
-// -----------------------------------------------------------------------------
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
 function formatDueDate(dueDateUTC) {
   if (!dueDateUTC) return null;
   return new Date(dueDateUTC).toLocaleString(undefined, {
@@ -47,7 +47,6 @@ function getDueDateStatus(dueDateUTC) {
   return "ok";
 }
 
-// Local "now", truncated to the minute, formatted for a datetime-local input's min attribute
 function getLocalDateTimeNow() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
@@ -77,9 +76,6 @@ function DueDatePill({ dueDateUTC }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// PDF Validation Badge
-// -----------------------------------------------------------------------------
 function ValidationBadge({ validationInfo }) {
   if (validationInfo === null || validationInfo === undefined) {
     return <span className="text-muted-foreground text-xs italic">No validation data</span>;
@@ -111,9 +107,149 @@ function ValidationBadge({ validationInfo }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Main Component
-// -----------------------------------------------------------------------------
+function ConflictOfInterestBadge({ isConflict }) {
+  if (!isConflict) return null;
+  return (
+    <Badge
+      variant="destructive"
+      className="bg-red-500/90 hover:bg-red-600 flex items-center gap-1"
+      title="This person is an author or co-author of this paper"
+    >
+      <AlertCircle className="h-3 w-3" />
+      Conflict
+    </Badge>
+  );
+}
+
+// ── Decision Buttons ───────────────────────────────────────────────────────────
+
+function DecisionButtons({ paper, onDecision }) {
+  const isPending = !paper.decision || paper.decision === "pending";
+  if (!isPending) {
+    return (
+      <div className="flex items-center justify-center h-20 bg-muted/30 rounded-lg border border-border">
+        {getDecisionBadge(paper.decision) || (
+          <span className="text-sm text-muted-foreground">{paper.decision}</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={() => onDecision(paper.paperId, "Accepted")}
+        className="w-full rounded-none border-2 border-green-600 bg-transparent text-green-700 dark:text-green-400 font-semibold text-sm py-2 px-4 tracking-wide transition-colors duration-150 hover:bg-green-600 hover:text-white"
+      >
+        Accepted
+      </button>
+      <button
+        onClick={() => onDecision(paper.paperId, "Rejected")}
+        className="w-full rounded-none border-2 border-red-600 bg-transparent text-red-700 dark:text-red-400 font-semibold text-sm py-2 px-4 tracking-wide transition-colors duration-150 hover:bg-red-600 hover:text-white"
+      >
+        Rejected
+      </button>
+      {paper.status !== "resubmitted" && (
+        <button
+          onClick={() => onDecision(paper.paperId, "Modification Required")}
+          className="w-full rounded-none border-2 border-yellow-500 bg-transparent text-yellow-700 dark:text-yellow-400 font-semibold text-sm py-2 px-4 tracking-wide transition-colors duration-150 hover:bg-yellow-500 hover:text-white"
+        >
+          Modification Required
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Helpers (badge) ────────────────────────────────────────────────────────────
+
+function getDecisionBadge(decision) {
+  if (decision === "Accepted") return <Badge variant="success">Accepted</Badge>;
+  if (decision === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
+  if (decision === "Modification Required") return <Badge variant="warning">Modification Required</Badge>;
+  if (decision === "Assigned") return <Badge variant="purple">Assigned</Badge>;
+  return null;
+}
+
+// ── Page-level skeleton ────────────────────────────────────────────────────────
+const PageSkeleton = () => (
+  <div className="flex-1 p-6 lg:p-10 overflow-auto">
+    <div className="max-w-7xl mx-auto space-y-6">
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex justify-between items-center flex-wrap gap-3">
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-56" />
+              <Skeleton className="h-4 w-80" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-9 w-64 rounded-md" />
+              <Skeleton className="h-9 w-24 rounded-md" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-0">
+          <div className="border-b border-border px-6 pt-4 pb-0 flex gap-6">
+            <Skeleton className="h-8 w-48 rounded" />
+            <Skeleton className="h-8 w-32 rounded" />
+            <Skeleton className="h-8 w-28 rounded" />
+          </div>
+          <div className="p-6 space-y-6">
+            {[...Array(3)].map((_, i) => (
+              <Card key={i} className="overflow-hidden">
+                <div className="bg-muted h-14 px-5 flex items-center gap-3">
+                  <Skeleton className="h-4 w-6" />
+                  <div className="space-y-1.5 flex-1">
+                    <Skeleton className="h-4 w-72" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </div>
+                <CardContent className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                    <div className="rounded-lg border border-border p-3 space-y-2">
+                      <Skeleton className="h-3 w-12" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Skeleton className="h-3 w-24" />
+                    <div className="rounded-lg border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-5 w-16 rounded-full" />
+                      </div>
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-3 w-24 mt-2" />
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  </div>
+);
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 const ReviewManagement = () => {
   const { conferenceId, conferenceName } = useOrganizerConference();
   const navigate = useNavigate();
@@ -221,8 +357,6 @@ const ReviewManagement = () => {
   const handleCancelEditDueDate = () => setEditingDueDateFor(null);
   const handleSaveDueDate = async (paperId) => {
     const dueDate = dueDateInputs[paperId];
-    // Guard against past dates even if the browser's native min-date check is bypassed
-    // (manual typing, older browsers, etc). Clearing the date (empty string) is still allowed.
     if (dueDate && new Date(dueDate) < new Date()) {
       toast.error("Due date cannot be set in the past.");
       return;
@@ -243,6 +377,7 @@ const ReviewManagement = () => {
       setSavingDueDate(false);
     }
   };
+
   const toggleReviewer = (key) => setExpandedReviewer((prev) => (prev === key ? null : key));
 
   const getStatusBadge = (status) =>
@@ -256,14 +391,6 @@ const ReviewManagement = () => {
     if (rec === "Accept with minor correction") return <Badge variant="info">{rec}</Badge>;
     if (rec === "Reject") return <Badge variant="destructive">{rec}</Badge>;
     return <Badge variant="outline">{rec}</Badge>;
-  };
-
-  const getDecisionBadge = (decision) => {
-    if (decision === "Accepted") return <Badge variant="success">Accepted</Badge>;
-    if (decision === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
-    if (decision === "Modification Required") return <Badge variant="warning">Modification Required</Badge>;
-    if (decision === "Assigned") return <Badge variant="purple">Assigned</Badge>;
-    return null;
   };
 
   const getDecisionTextColor = (decision) => {
@@ -281,7 +408,6 @@ const ReviewManagement = () => {
     return "text-red-600 dark:text-red-400";
   };
 
-  // Filter tableData by search query (manuscript number or title)
   const filteredData = searchQuery.trim()
     ? tableData.filter(
         (p) =>
@@ -312,31 +438,6 @@ const ReviewManagement = () => {
     );
     return noDecision && noReviewerReviewed && notOrganizerReviewed;
   });
-
-  const TableRowSkeleton = () => (
-    <Card className="overflow-hidden">
-      <div className="bg-muted h-12 px-5 flex items-center gap-3">
-        <Skeleton className="h-4 w-8" />
-        <Skeleton className="h-4 w-64" />
-      </div>
-      <CardContent className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="space-y-3">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-2/3" />
-        </div>
-        <div className="space-y-3">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-16 w-full rounded-lg" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-9 w-full rounded-md" />
-          <Skeleton className="h-9 w-full rounded-md" />
-          <Skeleton className="h-9 w-full rounded-md" />
-        </div>
-      </CardContent>
-    </Card>
-  );
 
   const renderPapersList = (papersList) => {
     if (papersList.length === 0) {
@@ -369,17 +470,14 @@ const ReviewManagement = () => {
       const paperDueDate = paper.dueDate ?? paper.reviewers?.[0]?.dueDate ?? null;
       const validationInfo = paper.validationInfo ?? paper.validation_info ?? null;
 
-      // A paper's due date is only relevant if there are still pending reviewers
       const allReviewersFinished =
         paper.reviewers?.length > 0 &&
         paper.reviewers.every((r) => r.status === "reviewed");
-      // Once a final decision has been made, the deadline no longer matters either
       const hasFinalDecision = Boolean(paper.decision) && paper.decision !== "pending";
       const dueDateIrrelevant = allReviewersFinished || hasFinalDecision;
 
       return (
         <Card key={currentPaperId} className="overflow-hidden">
-          {/* Card header (teal bar) */}
           <div className="bg-teal-700 dark:bg-teal-900 text-white px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm opacity-70">#{index + 1}</span>
@@ -402,7 +500,6 @@ const ReviewManagement = () => {
                   Reviewed by Editor
                 </span>
               )}
-              {/* Only show due date in header if it's still relevant */}
               {paperDueDate && !dueDateIrrelevant && (
                 <span
                   className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -564,40 +661,51 @@ const ReviewManagement = () => {
                         const isExpanded = expandedReviewer === key;
                         const hasComments =
                           reviewer.commentsForAuthors || reviewer.commentsForOrganizers;
-
-                        // Only show due date on the reviewer card if they haven't reviewed yet
                         const reviewerDueDate =
                           reviewer.status === "reviewed"
                             ? null
                             : (reviewer.dueDate ?? paperDueDate);
-
                         const dueDateStatus = getDueDateStatus(reviewerDueDate);
+                        const hasConflict = reviewer.isConflict === true;
+
                         return (
                           <Card
                             key={i}
-                            className={`overflow-hidden border-border ${
-                              dueDateStatus === "overdue" ? "border-red-200" : ""
+                            className={`overflow-hidden border-2 transition-all ${
+                              hasConflict
+                                ? "border-red-300 dark:border-red-700 opacity-60"
+                                : dueDateStatus === "overdue"
+                                ? "border-red-200"
+                                : "border-border"
                             }`}
                           >
                             <div
                               className={`flex items-center justify-between px-3 py-2 ${
-                                dueDateStatus === "overdue"
+                                hasConflict
+                                  ? "bg-red-50/80 dark:bg-red-950/30"
+                                  : dueDateStatus === "overdue"
                                   ? "bg-red-50/60 dark:bg-red-950/20"
                                   : "bg-muted/20"
                               }`}
                             >
-                              <div className="flex flex-col gap-1 flex-wrap">
+                              <div className="flex flex-col gap-1 flex-wrap flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium text-foreground">
+                                  <span className={`text-sm font-medium ${hasConflict ? "text-red-700 dark:text-red-300" : "text-foreground"}`}>
                                     {reviewer.name}
                                   </span>
                                   {getStatusBadge(reviewer.status)}
                                   {getRecommendationBadge(reviewer.recommendation)}
+                                  <ConflictOfInterestBadge isConflict={hasConflict} />
                                 </div>
-                                {/* DueDatePill is null-safe; only renders when reviewerDueDate is set */}
+                                {hasConflict && (
+                                  <p className="text-xs text-red-600 dark:text-red-400 font-semibold italic flex items-center gap-1">
+                                    <AlertCircle className="h-3 w-3" />
+                                    This person is an author/co-author of this paper
+                                  </p>
+                                )}
                                 <DueDatePill dueDateUTC={reviewerDueDate} />
                               </div>
-                              {reviewer.status === "reviewed" && hasComments && (
+                              {reviewer.status === "reviewed" && hasComments && !hasConflict && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -612,7 +720,7 @@ const ReviewManagement = () => {
                                 </Button>
                               )}
                             </div>
-                            {isExpanded && reviewer.status === "reviewed" && (
+                            {isExpanded && reviewer.status === "reviewed" && !hasConflict && (
                               <div className="px-3 py-3 space-y-3 border-t border-border bg-card">
                                 <div className="flex justify-between text-xs">
                                   <span className="text-muted-foreground font-medium">
@@ -750,46 +858,25 @@ const ReviewManagement = () => {
                   </Button>
                 </div>
               )}
+
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                 Final Decision
               </p>
-              {!paper.decision || paper.decision === "pending" ? (
-                <div className="space-y-2">
-                  <Button
-                    onClick={() => handleDecision(currentPaperId, "Accepted")}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    onClick={() => handleDecision(currentPaperId, "Rejected")}
-                    variant="destructive"
-                    className="w-full"
-                  >
-                    Reject
-                  </Button>
-                  {paper.status !== "resubmitted" && (
-                    <Button
-                      onClick={() => handleDecision(currentPaperId, "Modification Required")}
-                      className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-                    >
-                      Modifications Required
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-20 bg-muted/30 rounded-lg border border-border">
-                  {getDecisionBadge(paper.decision) || (
-                    <span className="text-sm text-muted-foreground">{paper.decision}</span>
-                  )}
-                </div>
-              )}
+              <DecisionButtons paper={paper} onDecision={handleDecision} />
             </div>
           </CardContent>
         </Card>
       );
     });
   };
+
+  if (loading) {
+    return (
+      <Layout title="PaperDesk - Review Management">
+        <PageSkeleton />
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="PaperDesk - Review Management">
@@ -805,7 +892,6 @@ const ReviewManagement = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  {/* Search box */}
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                     <input
@@ -832,7 +918,7 @@ const ReviewManagement = () => {
                     disabled={loading}
                   >
                     <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                    {loading ? "Refreshing..." : "Refresh"}
+                    Refresh
                   </Button>
                 </div>
               </div>
@@ -885,31 +971,13 @@ const ReviewManagement = () => {
                   </TabsList>
                 </div>
                 <TabsContent value="reviewers" className="mt-0">
-                  {loading ? (
-                    <div className="p-6 space-y-6">
-                      {Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}
-                    </div>
-                  ) : (
-                    <div className="space-y-6 p-6">{renderPapersList(reviewerReviewedPapers)}</div>
-                  )}
+                  <div className="space-y-6 p-6">{renderPapersList(reviewerReviewedPapers)}</div>
                 </TabsContent>
                 <TabsContent value="organizer" className="mt-0">
-                  {loading ? (
-                    <div className="p-6 space-y-6">
-                      {Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}
-                    </div>
-                  ) : (
-                    <div className="space-y-6 p-6">{renderPapersList(organizerReviewedPapers)}</div>
-                  )}
+                  <div className="space-y-6 p-6">{renderPapersList(organizerReviewedPapers)}</div>
                 </TabsContent>
                 <TabsContent value="unreviewed" className="mt-0">
-                  {loading ? (
-                    <div className="p-6 space-y-6">
-                      {Array.from({ length: 3 }, (_, i) => <TableRowSkeleton key={i} />)}
-                    </div>
-                  ) : (
-                    <div className="space-y-6 p-6">{renderPapersList(unreviewedPapers)}</div>
-                  )}
+                  <div className="space-y-6 p-6">{renderPapersList(unreviewedPapers)}</div>
                 </TabsContent>
               </Tabs>
             </CardContent>

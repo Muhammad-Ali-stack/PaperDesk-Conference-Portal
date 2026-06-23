@@ -49,9 +49,7 @@
     --input: 192 20% 24%;
     --ring: 192 24% 45%;
   }
-}
 
-@layer base {
   * {
     @apply border-border;
   }
@@ -68,13 +66,30 @@
     /*
       Reserve scrollbar space on public pages so the layout
       does not shift when navigating between pages that do or
-      do not overflow. Using scrollbar-gutter alone is enough —
-      overflow-y: scroll is NOT needed alongside it and was
-      causing a forced window scrollbar on dashboard pages
-      where scrolling is handled by the inner content div,
-      producing the viewport jump that made the sidebar snap.
+      do not overflow. scrollbar-gutter: stable reserves the
+      space permanently so no shift occurs when a scrollbar
+      appears or disappears.
     */
     scrollbar-gutter: stable;
+  }
+
+  /*
+    Radix UI (Select, Dialog, Popover, DropdownMenu…) sets
+    `overflow: hidden` and adds a `padding-right` equal to the
+    scrollbar width on <body> whenever a floating element opens,
+    to stop the page from shifting when the scrollbar disappears.
+
+    Our app does NOT scroll on <body> — scrolling happens inside
+    fixed/inner containers — so Radix's compensation is wrong and
+    actually CAUSES the shift. This rule permanently neutralises it.
+
+    The `!important` is intentional: Radix injects these as inline
+    styles so only !important can override them from a stylesheet.
+  */
+  body[data-scroll-locked] {
+    padding-right: 0 !important;
+    overflow: unset !important;
+    margin-right: 0 !important;
   }
 }
 

@@ -1298,7 +1298,7 @@ export const getOrganizerConferencesController = async (req, res) => {
 
     const { data, error } = await supabase
       .from("user_conference_roles")
-      .select("conference_id, conferences!conference_id(id, conference_name, acronym)")
+      .select("conference_id, conferences!conference_id(id, conference_name, acronym, status)")
       .eq("user_id", userId)
       .eq("role", "organizer");
 
@@ -1306,7 +1306,10 @@ export const getOrganizerConferencesController = async (req, res) => {
       return res.status(500).json({ success: false, message: "Error fetching conferences.", data: { error: error.message } });
     }
 
-    const conferences = (data || []).map((row) => row.conferences).filter(Boolean);
+    const conferences = (data || [])
+  .map((row) => row.conferences)
+  .filter(Boolean)
+  .filter((c) => c.status === "approved");
 
     return res.status(200).json({
       success: true,

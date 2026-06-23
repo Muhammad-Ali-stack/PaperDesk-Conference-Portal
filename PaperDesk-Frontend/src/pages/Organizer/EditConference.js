@@ -151,16 +151,17 @@ const EditConference = () => {
     setFormData(prev => ({ ...prev, topics: topicsArray }));
   };
 
+  // ---------------------------------------------------------------------------
+  // Validates date fields for logical consistency only — no past-date check,
+  // since organizers may legitimately edit a conference that has already started.
+  // ---------------------------------------------------------------------------
   const validateDates = () => {
     const { start_date, end_date, abstract_deadline, submission_deadline } = formData;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(start_date), end = new Date(end_date);
     const abstract = new Date(abstract_deadline), submission = new Date(submission_deadline);
+
     if (!start_date || !end_date || !abstract_deadline || !submission_deadline) {
       toast.error("All date fields are required."); return false;
-    }
-    if (start < today || end < today || abstract < today || submission < today) {
-      toast.error("Dates must not be in the past."); return false;
     }
     if (end < start) { toast.error("End date must be after start date."); return false; }
     if (abstract > end) { toast.error("Abstract deadline must be before conference end."); return false; }

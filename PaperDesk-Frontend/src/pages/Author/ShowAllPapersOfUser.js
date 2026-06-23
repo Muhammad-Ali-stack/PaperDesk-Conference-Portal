@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import Layout from "../../components/Layout";
@@ -28,18 +28,18 @@ import {
   Pencil,
   ExternalLink,
   RefreshCw,
-  CheckCircle,
-  XCircle,
 } from "lucide-react";
 
-// Helper function to get auth headers
+// ---------------------------------------------------------------------------
+// Auth header helper
+// ---------------------------------------------------------------------------
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
   return { headers: { Authorization: `Bearer ${token}` } };
 };
 
 // ---------------------------------------------------------------------------
-// Badge variant helpers
+// Badge helpers
 // ---------------------------------------------------------------------------
 const statusVariant = (status) => {
   switch ((status || "").toLowerCase()) {
@@ -52,74 +52,30 @@ const statusVariant = (status) => {
 
 const decisionVariant = (decision) => {
   switch ((decision || "").toLowerCase()) {
-    case "accepted":               return "success";
-    case "rejected":               return "destructive";
-    case "modification required":  return "warning";
-    default:                       return "secondary";
+    case "accepted":              return "success";
+    case "rejected":              return "destructive";
+    case "modification required": return "warning";
+    default:                      return "secondary";
   }
 };
 
 const statusLabel = (status) => {
-  const s = (status || "pending").toLowerCase();
   const map = {
     reviewed:    "Reviewed",
     assigned:    "Assigned",
     resubmitted: "Resubmitted",
     pending:     "Pending",
   };
-  return map[s] || s;
+  return map[(status || "pending").toLowerCase()] || status;
 };
 
 const decisionLabel = (decision) => {
-  const d = (decision || "").toLowerCase();
   const map = {
     accepted:                "Accepted",
     rejected:                "Rejected",
     "modification required": "Modification Required",
   };
-  return map[d] || d;
-};
-
-// ---------------------------------------------------------------------------
-// PDF Validation inline block
-// ---------------------------------------------------------------------------
-const ValidationBlock = ({ validationInfo }) => {
-  if (validationInfo === null || validationInfo === undefined) {
-    return (
-      <span className="text-xs text-muted-foreground italic">
-        No validation data available.
-      </span>
-    );
-  }
-
-  const isValid = validationInfo.validated === true;
-
-  return (
-    <div
-      className={`flex items-start gap-2 rounded-md px-2.5 py-2 text-xs border ${
-        isValid
-          ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
-          : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
-      }`}
-    >
-      {isValid ? (
-        <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-      ) : (
-        <XCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-      )}
-      <div className="space-y-0.5">
-        <p className="font-semibold">{isValid ? "Valid PDF" : "Invalid PDF"}</p>
-        <p className="opacity-80">{validationInfo.message}</p>
-        {validationInfo.fileInfo && (
-          <p className="opacity-70">
-            {validationInfo.fileInfo.pages != null && `Pages: ${validationInfo.fileInfo.pages}`}
-            {validationInfo.fileInfo.pages != null && validationInfo.fileInfo.sizeMB != null && " · "}
-            {validationInfo.fileInfo.sizeMB != null && `Size: ${validationInfo.fileInfo.sizeMB} MB`}
-          </p>
-        )}
-      </div>
-    </div>
-  );
+  return map[(decision || "").toLowerCase()] || decision;
 };
 
 // ---------------------------------------------------------------------------
@@ -147,11 +103,10 @@ const DeleteModal = ({ title, onConfirm, onCancel }) => (
 );
 
 // ---------------------------------------------------------------------------
-// ResubmissionCounter
+// ResubmissionCounter — only shown when paper has no final decision
 // ---------------------------------------------------------------------------
 const ResubmissionCounter = ({ submissionStatus }) => {
-  if (!submissionStatus) return null;
-  if (submissionStatus.unlimited) return null;
+  if (!submissionStatus || submissionStatus.unlimited) return null;
 
   const remaining = submissionStatus.maxResubmissions - submissionStatus.currentCount;
   const isExhausted = remaining <= 0;
@@ -175,8 +130,8 @@ const ResubmissionCounter = ({ submissionStatus }) => {
             remaining === 1 ? "text-yellow-600 dark:text-yellow-400" : "text-foreground"
           }`}
         >
-          <span className="font-bold">{remaining}</span> resubmission
-          {remaining !== 1 ? "s" : ""} left
+          <span className="font-bold">{remaining}</span>{" "}
+          resubmission{remaining !== 1 ? "s" : ""} left
         </span>
       )}
     </div>
@@ -184,19 +139,17 @@ const ResubmissionCounter = ({ submissionStatus }) => {
 };
 
 // ---------------------------------------------------------------------------
-// PaperCard component
+// PaperCard
 // ---------------------------------------------------------------------------
 const PaperCard = ({ paper, onDelete, conferenceId }) => {
   const navigate = useNavigate();
-
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded]         = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState(null);
-  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadingStatus, setLoadingStatus]   = useState(true);
 
   const paperId = paper.id || paper._id;
 
-  // Fetch resubmission status for this paper and conference
   useEffect(() => {
     if (!conferenceId || !paperId) return;
     setLoadingStatus(true);
@@ -213,20 +166,32 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
   const finalDecision = (paper.final_decision || "").toLowerCase();
   const paperStatus   = (paper.status || "pending").toLowerCase();
 
-  const effectiveStatus = (() => {
-    if (finalDecision === "rejected")              return "rejected";
-    if (finalDecision === "accepted")              return "accepted";
-    if (finalDecision === "modification required") return "modification required";
-    return paperStatus;
-  })();
-
-  const isAssigned    = paperStatus === "assigned";
-  const isModRequired = finalDecision === "modification required";
-  const isRejected    = finalDecision === "rejected";
   const isAccepted    = finalDecision === "accepted";
+  const isRejected    = finalDecision === "rejected";
+  const isModRequired = finalDecision === "modification required";
+  const isAssigned    = paperStatus === "assigned";
+  const hasFinalDecision = isAccepted || isRejected || isModRequired;
+
+  // Effective status for badge display
+  const effectiveStatus = hasFinalDecision ? finalDecision : paperStatus;
+
+  const effectiveStatusVariant = () => {
+    if (isAccepted)    return "success";
+    if (isRejected)    return "destructive";
+    if (isModRequired) return "warning";
+    return statusVariant(effectiveStatus);
+  };
+
+  const effectiveStatusLabel = () => {
+    if (isAccepted)    return "Accepted";
+    if (isRejected)    return "Rejected";
+    if (isModRequired) return "Modification Required";
+    return statusLabel(effectiveStatus);
+  };
 
   const canResubmitByLimit = submissionStatus ? submissionStatus.canResubmit : true;
 
+  // Edit/delete rules
   const canEdit =
     !isRejected &&
     !isAccepted &&
@@ -236,30 +201,13 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 
   const handleEdit = () => {
     const url =
-      `/userdashboard/update-paper?paperId=${paper.id || paper._id}` +
+      `/userdashboard/update-paper?paperId=${paperId}` +
       (conferenceId ? `&conferenceId=${conferenceId}` : "") +
       (isModRequired ? "&resubmit=true" : "");
     navigate(url);
   };
 
-  const effectiveStatusVariant = () => {
-    switch (effectiveStatus) {
-      case "accepted":              return "success";
-      case "rejected":              return "destructive";
-      case "modification required": return "warning";
-      default:                      return statusVariant(effectiveStatus);
-    }
-  };
-
-  const effectiveStatusLabel = () => {
-    switch (effectiveStatus) {
-      case "accepted":              return "Accepted";
-      case "rejected":              return "Rejected";
-      case "modification required": return "Modification Required";
-      default:                      return statusLabel(effectiveStatus);
-    }
-  };
-
+  // Reviewer + organizer comments
   const organizerComments =
     paper.organizer_comments_for_authors ?? paper.organizerCommentsForAuthors ?? null;
 
@@ -278,8 +226,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
     allComments.push({ text: organizerComments, confidence: null });
   }
 
-  const validationInfo = paper.validationInfo ?? paper.validation_info ?? null;
-
   return (
     <>
       <Card className="flex flex-col h-full hover:shadow-md transition-shadow duration-200">
@@ -287,31 +233,25 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
           <CardTitle className="text-base font-semibold leading-snug line-clamp-2">
             {paper.title}
           </CardTitle>
-  {paper.manuscript_number && (
-  <p className="text-xs text-muted-foreground font-mono mt-0.5">
-    Manuscript ID: {paper.manuscript_number}
-  </p>
-)}
 
+          {paper.manuscript_number && (
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">
+              Manuscript ID: {paper.manuscript_number}
+            </p>
+          )}
+
+          {/* Status badge */}
           <div className="flex flex-wrap gap-2 pt-2">
-            {isRejected || isAccepted || isModRequired ? (
-              <Badge variant={effectiveStatusVariant()}>{effectiveStatusLabel()}</Badge>
-            ) : (
-              <>
-                <Badge variant={statusVariant(paperStatus)}>{statusLabel(paperStatus)}</Badge>
-                {finalDecision && finalDecision !== "pending" && finalDecision !== "" && (
-                  <Badge variant={decisionVariant(finalDecision)}>
-                    {decisionLabel(finalDecision)}
-                  </Badge>
-                )}
-              </>
-            )}
+            <Badge variant={effectiveStatusVariant()}>{effectiveStatusLabel()}</Badge>
           </div>
 
-          {loadingStatus ? (
-            <Skeleton className="h-5 w-36 rounded-md mt-2" />
-          ) : (
-            <ResubmissionCounter submissionStatus={submissionStatus} />
+          {/* Resubmission counter — hidden for accepted/rejected papers */}
+          {!hasFinalDecision && (
+            loadingStatus ? (
+              <Skeleton className="h-5 w-36 rounded-md mt-2" />
+            ) : (
+              <ResubmissionCounter submissionStatus={submissionStatus} />
+            )
           )}
         </CardHeader>
 
@@ -352,7 +292,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             </a>
           )}
 
-          {/* Edit / Delete / Resubmit buttons */}
+          {/* Edit / Delete / Resubmit */}
           {canEdit && (
             <div className="relative group flex gap-2 mt-auto pt-2">
               {isModRequired ? (
@@ -405,7 +345,7 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
             </div>
           )}
 
-          {/* Expand/collapse details */}
+          {/* Expand / collapse */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="flex items-center gap-1 text-xs text-primary hover:underline font-medium mt-1 w-fit"
@@ -429,46 +369,38 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
                 </div>
               )}
 
-              {/* Authors — fixed to handle nested pa.authors shape from backend */}
-            {/* Authors — corresponding_author now lives on pa (paper_authors row), not pa.authors */}
-{paper.paper_authors?.length > 0 && (
-  <div>
-    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-      Authors
-    </p>
-    <ul className="space-y-1">
-      {paper.paper_authors.map((pa, i) => {
-        const author = pa.authors ?? pa;
-        const firstName = author?.first_name || author?.firstName || "";
-        const lastName  = author?.last_name  || author?.lastName  || "";
-        const email     = author?.email || "";
-        const isCorresponding = pa?.corresponding_author ?? false;
-        const fullName =
-          [firstName, lastName].filter(Boolean).join(" ") || "Unknown Author";
-        return (
-          <li key={i} className="text-xs text-foreground">
-            <span>{fullName}</span>
-            {isCorresponding && (
-              <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
-                Corresponding
-              </Badge>
-            )}
-            {email && (
-              <span className="block text-muted-foreground">{email}</span>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  </div>
-)}
-              {/* PDF Validation display */}
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                  PDF Validation
-                </p>
-                <ValidationBlock validationInfo={validationInfo} />
-              </div>
+              {/* Authors */}
+              {paper.paper_authors?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                    Authors
+                  </p>
+                  <ul className="space-y-1">
+                    {paper.paper_authors.map((pa, i) => {
+                      const author = pa.authors ?? pa;
+                      const firstName = author?.first_name || author?.firstName || "";
+                      const lastName  = author?.last_name  || author?.lastName  || "";
+                      const email     = author?.email || "";
+                      const isCorresponding = pa?.corresponding_author ?? false;
+                      const fullName =
+                        [firstName, lastName].filter(Boolean).join(" ") || "Unknown Author";
+                      return (
+                        <li key={i} className="text-xs text-foreground">
+                          <span>{fullName}</span>
+                          {isCorresponding && (
+                            <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4">
+                              Corresponding
+                            </Badge>
+                          )}
+                          {email && (
+                            <span className="block text-muted-foreground">{email}</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
 
               {/* Reviewer & Organizer comments */}
               {allComments.length > 0 && (
@@ -495,7 +427,6 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
         </CardContent>
       </Card>
 
-      {/* Delete confirmation modal */}
       {showDeleteModal && (
         <DeleteModal
           title={paper.title}
@@ -511,16 +442,14 @@ const PaperCard = ({ paper, onDelete, conferenceId }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Skeleton loader for PaperCard
+// Skeleton loader
 // ---------------------------------------------------------------------------
 const PaperCardSkeleton = () => (
   <div className="rounded-xl border bg-card p-5 space-y-3">
     <Skeleton className="h-5 w-3/4" />
     <div className="flex gap-2">
       <Skeleton className="h-6 w-20 rounded-full" />
-      <Skeleton className="h-6 w-24 rounded-full" />
     </div>
-    <Skeleton className="h-5 w-36 rounded-md" />
     <Skeleton className="h-3 w-32" />
     <Skeleton className="h-3 w-full" />
     <Skeleton className="h-3 w-2/3" />
@@ -532,38 +461,39 @@ const PaperCardSkeleton = () => (
 );
 
 // ---------------------------------------------------------------------------
-// Main component: AllPapersOfAuthor
+// Main component
 // ---------------------------------------------------------------------------
 const AllPapersOfAuthor = () => {
   const [auth] = useAuth();
   const userId = auth?.user?._id || auth?.user?.id;
 
-  const [conferences, setConferences] = useState([]);
+  const [conferences, setConferences]               = useState([]);
   const [selectedConferenceId, setSelectedConferenceId] = useState("");
   const [selectedConferenceName, setSelectedConferenceName] = useState("");
-  const [papers, setPapers] = useState([]);
+  const [papers, setPapers]                         = useState([]);
   const [loadingConferences, setLoadingConferences] = useState(false);
-  const [loadingPapers, setLoadingPapers] = useState(false);
+  const [loadingPapers, setLoadingPapers]           = useState(false);
 
-  // Fetch all conferences where the user is an author
-  useEffect(() => {
+  // Fetch conferences where the user still has papers
+  const fetchConferences = useCallback(async () => {
     if (!userId) return;
-    const fetchConferences = async () => {
-      setLoadingConferences(true);
-      try {
-        const res = await axios.get(`/api/author/${userId}/conferences`, getAuthHeaders());
-        setConferences(res.data?.data?.conferences ?? []);
-      } catch (err) {
-        console.error("Error fetching conferences:", err.response?.data);
-        toast.error(err.response?.data?.message || "Unable to load conferences. Please try again.");
-      } finally {
-        setLoadingConferences(false);
-      }
-    };
-    fetchConferences();
+    setLoadingConferences(true);
+    try {
+      const res = await axios.get(`/api/author/${userId}/conferences`, getAuthHeaders());
+      setConferences(res.data?.data?.conferences ?? []);
+    } catch (err) {
+      console.error("Error fetching conferences:", err.response?.data);
+      toast.error(err.response?.data?.message || "Unable to load conferences.");
+    } finally {
+      setLoadingConferences(false);
+    }
   }, [userId]);
 
-  // Fetch papers for the selected conference
+  useEffect(() => {
+    fetchConferences();
+  }, [fetchConferences]);
+
+  // Fetch papers for selected conference
   useEffect(() => {
     if (!selectedConferenceId || !userId) return;
     const fetchPapers = async () => {
@@ -581,11 +511,10 @@ const AllPapersOfAuthor = () => {
         }
       } catch (err) {
         console.error("Error fetching papers:", err.response?.data);
-        if (err.response?.status === 401) {
-          toast.error("Authentication failed. Please login again.");
-        } else if (err.response?.status === 404) {
+        if (err.response?.status === 404) {
           setPapers([]);
-          toast("No papers submitted to this conference yet.", { icon: "📋" });
+        } else if (err.response?.status === 401) {
+          toast.error("Authentication failed. Please login again.");
         } else {
           toast.error(err.response?.data?.message || "Failed to load papers.");
         }
@@ -602,11 +531,25 @@ const AllPapersOfAuthor = () => {
         `/api/author/delete-paper/${paperId}/${selectedConferenceId}`,
         getAuthHeaders()
       );
-      setPapers((prev) => prev.filter((p) => (p.id || p._id) !== paperId));
+
+      const remaining = papers.filter((p) => (p.id || p._id) !== paperId);
+      setPapers(remaining);
       toast.success("Paper deleted successfully.");
+
+      // If this was the last paper in the conference, remove it from
+      // the dropdown and reset selection — backend already removed the role.
+      if (remaining.length === 0) {
+        const updatedConferences = conferences.filter((c) => c.id !== selectedConferenceId);
+        setConferences(updatedConferences);
+        setSelectedConferenceId("");
+        setSelectedConferenceName("");
+        if (updatedConferences.length === 0) {
+          toast("You have no more conference submissions.", { icon: "📋" });
+        }
+      }
     } catch (err) {
       console.error("Delete error:", err.response?.data);
-      toast.error(err.response?.data?.message || "Failed to delete the paper. Please try again.");
+      toast.error(err.response?.data?.message || "Failed to delete the paper.");
     }
   };
 
@@ -632,14 +575,18 @@ const AllPapersOfAuthor = () => {
           <label className="block text-sm font-medium text-foreground mb-2">Conference</label>
           {loadingConferences ? (
             <Skeleton className="h-10 w-full rounded-md" />
+          ) : conferences.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic">
+              You have not submitted to any conferences yet.
+            </p>
           ) : (
-            <Select onValueChange={handleConferenceChange} disabled={!userId}>
+            <Select
+              value={selectedConferenceId}
+              onValueChange={handleConferenceChange}
+              disabled={!userId}
+            >
               <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={
-                    conferences.length === 0 ? "No conferences found" : "Select a conference"
-                  }
-                />
+                <SelectValue placeholder="Select a conference" />
               </SelectTrigger>
               <SelectContent>
                 {conferences.map((conf) => (
@@ -669,13 +616,14 @@ const AllPapersOfAuthor = () => {
           </div>
         )}
 
-        {/* Papers list or skeletons */}
+        {/* Loading skeletons */}
         {loadingPapers && (
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
             {[1, 2, 3].map((i) => <PaperCardSkeleton key={i} />)}
           </div>
         )}
 
+        {/* Papers grid */}
         {!loadingPapers && papers.length > 0 && (
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
             {papers.map((p) => (
@@ -689,6 +637,7 @@ const AllPapersOfAuthor = () => {
           </div>
         )}
 
+        {/* Empty state — conference selected but no papers */}
         {!loadingPapers && selectedConferenceId && papers.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-24 gap-3 text-muted-foreground">
             <FileText className="h-10 w-10 opacity-30" />
@@ -696,7 +645,8 @@ const AllPapersOfAuthor = () => {
           </div>
         )}
 
-        {!selectedConferenceId && !loadingConferences && (
+        {/* Empty state — no conference selected */}
+        {!selectedConferenceId && !loadingConferences && conferences.length > 0 && (
           <div className="flex flex-col items-center justify-center mt-24 gap-3 text-muted-foreground">
             <FileText className="h-10 w-10 opacity-30" />
             <p className="text-sm">Select a conference above to view your papers.</p>

@@ -771,7 +771,7 @@ export const getPapersByConferenceController = async (req, res) => {
     // Fetch papers
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
-      .select("*, paper_authors(authors(first_name, email))")
+      .select("*, paper_authors(authors(first_name, last_name, email))")
       .eq("conference_id", conferenceId);
 
     if (papersError) {
@@ -813,6 +813,7 @@ export const getPapersByConferenceController = async (req, res) => {
       // Extract author details
       const authors = (paper.paper_authors || []).map((pa) => ({
         firstName: pa.authors?.first_name,
+        lastName: pa.authors?.last_name,
         email: pa.authors?.email,
       }));
 

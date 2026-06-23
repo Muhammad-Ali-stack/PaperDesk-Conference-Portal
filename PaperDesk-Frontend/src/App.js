@@ -4,6 +4,7 @@ import { Toaster } from "react-hot-toast";
 import axios from "axios";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
+import { Skeleton } from "./components/ui/skeleton";
 import { OrganizerConferenceProvider } from "./context/OrganizerConferenceContext";
 import UserPrivateRoute from "./routes/userAuth";
 import DashboardLayout from "./components/DashboardLayout";
@@ -47,7 +48,33 @@ const RolePrivateRoute          = lazy(() => import("./routes/roleAuth"));
 
 axios.defaults.baseURL = process.env.REACT_APP_API;
 
-// Inner component so useLocation works inside the Router context
+// ── Generic page-level skeleton shown while lazy chunks load ──────────────────
+// Keeps the footer pinned and gives a neutral loading feel that
+// works across all page types (auth, dashboard, conference, etc.)
+const PageSkeleton = () => (
+  <div className="min-h-[calc(100vh-4rem)] px-6 py-10 max-w-5xl mx-auto space-y-6">
+    {/* Page title */}
+    <Skeleton className="h-8 w-48" />
+    {/* Subtitle */}
+    <Skeleton className="h-4 w-72" />
+
+    {/* Card-like content blocks */}
+    <div className="space-y-3 pt-4">
+      <Skeleton className="h-32 w-full rounded-xl" />
+      <Skeleton className="h-32 w-full rounded-xl" />
+      <Skeleton className="h-32 w-full rounded-xl" />
+    </div>
+
+    {/* Bottom row */}
+    <div className="grid grid-cols-3 gap-4 pt-2">
+      <Skeleton className="h-20 rounded-lg" />
+      <Skeleton className="h-20 rounded-lg" />
+      <Skeleton className="h-20 rounded-lg" />
+    </div>
+  </div>
+);
+
+// ── Inner component so useLocation works inside the Router context ────────────
 const AppContent = () => {
   const { pathname } = useLocation();
 
@@ -59,7 +86,7 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       <Header />
       <main className="flex-1">
-        <Suspense fallback={null}>
+        <Suspense fallback={<PageSkeleton />}>
           <Routes>
             <Route path="/"                element={<Home />} />
             <Route path="/register"        element={<Register />} />

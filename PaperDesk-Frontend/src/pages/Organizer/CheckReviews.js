@@ -20,7 +20,7 @@ import { Users, ShieldCheck, CheckCircle, XCircle } from "lucide-react";
 
 const getPaperStatusBadge = (status, hasReviews, decision) => {
   if (decision && decision !== "pending") return getDecisionBadge(decision);
-  if (status === "assigned" && !hasReviews) return <Badge variant="warning">Under Review</Badge>;
+  if (status === "assigned" && !hasReviews) return <Badge variant="warning">Assigned to Reviewer</Badge>;
   if (hasReviews) return <Badge variant="success">Reviewed</Badge>;
   return <Badge variant="secondary">Pending Review</Badge>;
 };
@@ -47,7 +47,7 @@ const getPlagiarismLabel = (score) => {
   return "High Similarity";
 };
 
-// ─── PDF Validation Block (fixed) ────────────────────────────────────────────
+// ─── PDF Validation Block ─────────────────────────────────────────────────────
 
 const ValidationInfoBlock = ({ validationInfo }) => {
   if (validationInfo === null || validationInfo === undefined) return null;
@@ -82,15 +82,28 @@ const PaperCardSkeleton = () => (
   <Card className="mb-6">
     <CardContent className="p-6">
       <div className="flex justify-between items-start flex-wrap gap-6">
-        <div className="flex-1 min-w-[250px] space-y-3">
+        {/* Left column */}
+        <div className="flex-1 min-w-[250px] space-y-4">
+          {/* Title + badge row */}
           <div className="flex items-center gap-3 flex-wrap">
-            <Skeleton className="h-7 w-64" />
-            <Skeleton className="h-6 w-24 rounded-full" />
+            <Skeleton className="h-7 w-72" />
+            <Skeleton className="h-6 w-28 rounded-full" />
           </div>
-          <Skeleton className="h-5 w-72" />
-          <Skeleton className="h-6 w-32 rounded-full" />
+          {/* Authors */}
+          <Skeleton className="h-4 w-64" />
+          {/* Plagiarism row */}
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-6 w-36 rounded-full" />
+          </div>
+          {/* PDF validation */}
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-10 w-56 rounded-lg" />
+          </div>
         </div>
-        <div className="flex gap-10 items-center flex-wrap">
+        {/* Right column – donut placeholder */}
+        <div className="flex items-center justify-center">
           <Skeleton className="h-24 w-24 rounded-full" />
         </div>
       </div>
@@ -102,19 +115,29 @@ const ReviewCardSkeleton = () => (
   <Card className="mb-4">
     <CardContent className="p-4">
       <div className="flex items-start gap-3">
+        {/* Avatar */}
         <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
-        <div className="flex-1 space-y-2">
-          <Skeleton className="h-5 w-52" />
-          <Skeleton className="h-4 w-64" />
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+        <div className="flex-1 space-y-3">
+          {/* Reviewer name */}
+          <Skeleton className="h-5 w-48" />
+          {/* Email */}
+          <Skeleton className="h-4 w-60" />
+          {/* Score grid */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-1">
             {[0, 1, 2, 3, 4].map((j) => (
               <div key={j} className="space-y-1">
                 <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-4 w-8" />
+                <Skeleton className="h-5 w-8" />
               </div>
             ))}
           </div>
-          <Skeleton className="h-16 w-full rounded-lg mt-1" />
+          {/* Recommendation + confidence */}
+          <div className="flex gap-6">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          {/* Comments block */}
+          <Skeleton className="h-16 w-full rounded-lg" />
         </div>
       </div>
     </CardContent>
@@ -187,15 +210,24 @@ const ReviewDetails = () => {
         autoSelectDone.current = true;
       }
     } else if (!selectedPaperId && papers.length > 0 && !autoSelectDone.current) {
+      // Build a Set of paper IDs that are selectable:
+      // a paper is selectable if its status is NOT "pending",
+      // OR if the organizer has already made a decision on it.
+      //
+      // FIX: use String(p.paperId) from reviewManagementData to match
+      // String(p.id || p._id) from the papers list — both sides stringified.
       const decidedIds = new Set(
         reviewManagementData
           .filter((p) => p.decision && p.decision !== "pending")
           .map((p) => String(p.paperId))
       );
+
       const firstSelectable = papers.find((p) => {
         const id = String(p.id || p._id);
+        // selectable if assigned/reviewed, OR organizer already decided
         return p.status !== "pending" || decidedIds.has(id);
       });
+
       if (firstSelectable) {
         const newId = String(firstSelectable.id || firstSelectable._id);
         setSelectedPaperId(newId);
@@ -205,7 +237,7 @@ const ReviewDetails = () => {
     }
   }, [papers, reviewManagementData, loadingPapers, searchParams, selectedPaperId, conferenceId, setSearchParams]);
 
-  // 3. Fetch reviews when selectedPaperId changes (no extra paper fetch)
+  // 3. Fetch reviews when selectedPaperId changes
   useEffect(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -216,7 +248,10 @@ const ReviewDetails = () => {
       return;
     }
 
-    const mgmtEntry = reviewManagementData.find((p) => String(p.paperId) === String(selectedPaperId));
+    // FIX: both sides stringified so the lookup never misses due to type mismatch
+    const mgmtEntry = reviewManagementData.find(
+      (p) => String(p.paperId) === String(selectedPaperId)
+    );
     setReviewMgmtPaper(mgmtEntry ?? null);
 
     const fetchReviews = async () => {
@@ -234,7 +269,6 @@ const ReviewDetails = () => {
       } catch (err) {
         if (err.name !== "AbortError") {
           console.error("Error fetching reviews:", err);
-          setError(err.response?.data?.error || "This Paper was directly reviewed by Editor");
           setReviews([]);
         }
       } finally {
@@ -254,11 +288,13 @@ const ReviewDetails = () => {
   const organizerPlagiarismScore = reviewMgmtPaper?.plagiarismScore ?? null;
   const hasOrganizerScore = organizerPlagiarismScore !== null && organizerPlagiarismScore !== undefined;
   const decision = reviewMgmtPaper?.decision ?? null;
-  const wasReviewedByOrganizer = !!reviewMgmtPaper && !!decision && decision !== "pending" && reviews.length === 0;
+  const wasReviewedByOrganizer =
+    !!reviewMgmtPaper && !!decision && decision !== "pending" && reviews.length === 0;
   const organizerComments = reviewMgmtPaper?.organizerCommentsForAuthors ?? null;
   const validationInfo = reviewMgmtPaper?.validationInfo ?? reviewMgmtPaper?.validation_info ?? null;
 
-  const decidedPaperIds = new Set(
+  // FIX: build decidedIds with String() on both sides — same fix as the auto-select above
+  const decidedIds = new Set(
     reviewManagementData
       .filter((p) => p.decision && p.decision !== "pending")
       .map((p) => String(p.paperId))
@@ -285,8 +321,11 @@ const ReviewDetails = () => {
                 <SelectContent>
                   {papers.map((paper) => {
                     const paperId = String(paper.id || paper._id);
-                    const isOrganizerReviewed = decidedPaperIds.has(paperId);
-                    const isDisabled = paper.status === "pending" && !isOrganizerReviewed;
+                    // A paper is selectable if it has been assigned/reviewed,
+                    // OR the organizer has already made a decision on it.
+                    // "pending" = just submitted, no reviewer assigned yet → grey out.
+                    const isOrganizerDecided = decidedIds.has(paperId);
+                    const isDisabled = paper.status === "pending" && !isOrganizerDecided;
                     return (
                       <SelectItem
                         key={paperId}
@@ -295,6 +334,7 @@ const ReviewDetails = () => {
                         className={isDisabled ? "text-muted-foreground italic" : ""}
                       >
                         {paper.title}
+                        {isDisabled && " (Pending Assignment)"}
                       </SelectItem>
                     );
                   })}

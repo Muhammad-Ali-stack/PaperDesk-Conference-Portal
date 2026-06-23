@@ -40,7 +40,7 @@ export default function ConferencePapersDecisions() {
   const filteredPapers =
     selectedCategory === "ALL" ? papers : groupedPapers[selectedCategory] || [];
 
-  const TABLE_HEADERS = ["S.No", "Title", "Keywords", "Authors", "Reviewers", "Paper", "Final Decision"];
+  const TABLE_HEADERS = ["S.No", "Title", "Keywords", "Authors", "Paper", "Final Decision"];
 
   const TableSkeleton = () => (
     <Card className="mb-8 shadow-sm">
@@ -66,7 +66,6 @@ export default function ConferencePapersDecisions() {
                     <Skeleton className="h-4 w-40" />
                     <Skeleton className="h-4 w-36" />
                   </td>
-                  <td className="px-6 py-4"><Skeleton className="h-4 w-40" /></td>
                   <td className="px-6 py-4"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-6 py-4"><Skeleton className="h-6 w-24 rounded-full" /></td>
                 </tr>
@@ -102,59 +101,49 @@ export default function ConferencePapersDecisions() {
             </thead>
             <tbody className="divide-y divide-border">
               {papersList.length > 0 ? (
-                papersList.map((paper, idx) => {
-                  let reviewerNames = "N/A";
-                  if (paper.reviews) {
-                    reviewerNames = paper.reviews
-                      .map((r) => r.reviewerId?.name || r.reviewer?.name || "-")
-                      .join(", ");
-                  }
-
-                  return (
-                    <tr key={paper._id} className="hover:bg-muted/30">
-                      <td className="px-6 py-4">{idx + 1}</td>
-                      <td className="px-6 py-4 font-medium">{paper.title}</td>
-                      <td className="px-6 py-4">{paper.keywords?.join(", ") || "N/A"}</td>
-                      <td className="px-6 py-4">
-                        {paper.authors?.map((a, i) => (
-                          <div key={i}>
-                            {a.firstName} ({a.email})
-                          </div>
-                        ))}
-                      </td>
-                      <td className="px-6 py-4">{reviewerNames}</td>
-                      <td className="px-6 py-4">
-                        <a
-                          href={paper.paper_file_path}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-teal-600 hover:underline inline-flex items-center gap-1"
-                        >
-                          <FileText className="h-3 w-3" />
-                          View PDF
-                        </a>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge
-                          variant={
-                            paper.final_decision === "Accepted"
-                              ? "success"
-                              : paper.final_decision === "Rejected"
-                              ? "destructive"
-                              : paper.final_decision === "Modification Required"
-                              ? "warning"
-                              : "secondary"
-                          }
-                        >
-                          {paper.final_decision || "Pending"}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                })
+                papersList.map((paper, idx) => (
+                  <tr key={paper._id} className="hover:bg-muted/30">
+                    <td className="px-6 py-4">{idx + 1}</td>
+                    <td className="px-6 py-4 font-medium">{paper.title}</td>
+                    <td className="px-6 py-4">{paper.keywords?.join(", ") || "N/A"}</td>
+                    <td className="px-6 py-4">
+                      {paper.authors?.map((a, i) => (
+                        <div key={i}>
+                          {a.firstName} {a.lastName} ({a.email})
+                        </div>
+                      ))}
+                    </td>
+                    <td className="px-6 py-4">
+                      <a
+                        href={paper.paper_file_path}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal-600 hover:underline inline-flex items-center gap-1"
+                      >
+                        <FileText className="h-3 w-3" />
+                        View PDF
+                      </a>
+                    </td>
+                    <td className="px-6 py-4">
+                      <Badge
+                        variant={
+                          paper.final_decision === "Accepted"
+                            ? "success"
+                            : paper.final_decision === "Rejected"
+                            ? "destructive"
+                            : paper.final_decision === "Modification Required"
+                            ? "warning"
+                            : "secondary"
+                        }
+                      >
+                        {paper.final_decision || "Pending"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
                     No papers found.
                   </td>
                 </tr>

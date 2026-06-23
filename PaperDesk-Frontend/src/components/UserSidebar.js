@@ -4,7 +4,7 @@ import { useAuth } from "../context/Auth";
 import { cn } from "../lib/utils";
 import {
   LayoutDashboard, User, FileText, Star, Users,
-  ChevronLeft, ChevronRight, Settings, Globe
+  ChevronLeft, ChevronRight, Settings, Globe, PlusCircle
 } from "lucide-react";
 import OrganizerConferenceSelector from "./OrganizerConferenceSelector";
 
@@ -148,22 +148,33 @@ const UserSidebar = () => {
 
           {/* General section -- always visible to every logged-in user */}
           <SectionLabel label="General" expanded={expanded} />
-          <NavItem to="/userdashboard/user-profile"   icon={User}            label="Profile"        expanded={expanded} />
-          <NavItem to="/userdashboard/roles"          icon={Settings}        label="My Conferences" expanded={expanded} />
+          <NavItem to="/userdashboard/user-profile" icon={User}     label="Profile"        expanded={expanded} />
+          <NavItem to="/userdashboard/roles"         icon={Settings} label="My Conferences" expanded={expanded} />
 
           {/*
             Organizer section -- rendered only when the user holds the
             "organizer" role on at least one conference.
             fetchRoles is called in AuthorForm after paper submission,
             so this section appears/disappears without a re-login.
+
+            Order rationale:
+              1. Conference management  (create → overview → edit)
+              2. Active conference selector
+              3. People management      (invite → accepted)
+              4. Paper & review mgmt    (assign → assignments → reviews → decisions)
           */}
           {hasRole("organizer") && (
             <>
               <SectionLabel label="Editor" expanded={expanded} />
 
-              {/* Conference selector only makes sense when the sidebar is expanded */}
+              {/* ── 1. Conference management ── */}
+              <NavItem to="/userdashboard/create-conference"    icon={PlusCircle} label="Create Conference" expanded={expanded} />
+              <NavItem to="/userdashboard/organizer-dashboard"  icon={Globe}      label="Overview"          expanded={expanded} />
+             
+
+              {/* ── Active conference picker (expanded only) ── */}
               {expanded && (
-                <div className="px-1 pb-1">
+                <div className="px-1 pb-1 mt-1">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 px-2 mb-1.5">
                     Active Conference
                   </p>
@@ -171,15 +182,17 @@ const UserSidebar = () => {
                 </div>
               )}
 
-              <NavItem to="/userdashboard/organizer-dashboard"  icon={Globe}    label="Overview"          expanded={expanded} />
+              {/* ── 2. People management ── */}
+               <NavItem to="/userdashboard/edit-conference"      icon={Settings}   label="Edit Conference"   expanded={expanded} />
               <NavItem to="/userdashboard/invite-reviewers"     icon={Users}    label="Invite Reviewers"  expanded={expanded} />
               <NavItem to="/userdashboard/accepted-invitations" icon={Users}    label="Accepted Invites"  expanded={expanded} />
+
+              {/* ── 3. Paper & review management ── */}
               <NavItem to="/userdashboard/assign-papers"        icon={FileText} label="Assign Papers"     expanded={expanded} />
               <NavItem to="/userdashboard/assignments"          icon={FileText} label="Assignments"       expanded={expanded} />
               <NavItem to="/userdashboard/review-management"    icon={Star}     label="Review Management" expanded={expanded} />
               <NavItem to="/userdashboard/reviews"              icon={Star}     label="Check Reviews"     expanded={expanded} />
               <NavItem to="/userdashboard/papers/decisions"     icon={FileText} label="Paper Decisions"   expanded={expanded} />
-              <NavItem to="/userdashboard/edit-conference"      icon={Settings} label="Edit Conference"   expanded={expanded} />
             </>
           )}
 
