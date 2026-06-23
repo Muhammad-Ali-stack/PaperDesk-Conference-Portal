@@ -34,27 +34,18 @@ import {
 } from "lucide-react";
 
 function AuthorForm({ conferenceName }) {
-  const [title, setTitle] = useState("");
-  const [abstract, setAbstract] = useState("");
-  const [keywords, setKeywords] = useState("");
-  const [paper, setPaper] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSubmittingMessage, setShowSubmittingMessage] = useState(false);
-  const { acronym, id } = useParams();
-  const navigate = useNavigate();
-  const [fetchedConferenceName, setFetchedConferenceName] = useState("");
-  const [conferenceMode, setConferenceMode] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [auth, , , fetchRoles] = useAuth();
-  const fileInputRef = useRef(null);
-
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [title, setTitle]                       = useState("");
+  const [abstract, setAbstract]                 = useState("");
+  const [keywords, setKeywords]                 = useState("");
+  const [paper, setPaper]                       = useState(null);
+  const [isSubmitting, setIsSubmitting]         = useState(false);
+  const [selectedFile, setSelectedFile]         = useState(null);
   const [abstractWordCount, setAbstractWordCount] = useState(0);
-  const [validationResult, setValidationResult] = useState(null);
-
-  const [countries, setCountries] = useState([]);
+  const [fetchedConferenceName, setFetchedConferenceName] = useState("");
+  const [conferenceMode, setConferenceMode]     = useState("");
+  const [loading, setLoading]                   = useState(true);
+  const [countries, setCountries]               = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
-
   const [authors, setAuthors] = useState([
     {
       firstName: "",
@@ -63,15 +54,23 @@ function AuthorForm({ conferenceName }) {
       country: "",
       affiliation: "",
       webPage: "",
-      corresponding: true, // solo author is always corresponding
+      corresponding: true,
     },
   ]);
 
+  const { acronym, id } = useParams();
+  const navigate = useNavigate();
+  const fileInputRef = useRef(null);
+
+  // ── Pull setAuth so we can write fresh roles directly into context ──
+  const [auth, setAuth] = useAuth();
+
+  // ── Fetch country list ─────────────────────────────────────────────
   useEffect(() => {
     const fetchCountries = async () => {
       setLoadingCountries(true);
       try {
-        const res = await fetch("https://countriesnow.space/api/v0.1/countries");
+        const res  = await fetch("https://countriesnow.space/api/v0.1/countries");
         const json = await res.json();
         if (!json.error && json.data) {
           const sorted = json.data
@@ -80,7 +79,7 @@ function AuthorForm({ conferenceName }) {
             .sort((a, b) => a.localeCompare(b));
           setCountries(sorted);
         }
-      } catch (error) {
+      } catch {
         toast.error("Unable to load country list.");
       } finally {
         setLoadingCountries(false);
@@ -89,14 +88,13 @@ function AuthorForm({ conferenceName }) {
     fetchCountries();
   }, []);
 
+  // ── Fetch conference details ───────────────────────────────────────
   useEffect(() => {
     const fetchConference = async () => {
       try {
         const response = await axios.get(`/api/conference/get-conference/${id}`);
         setFetchedConferenceName(response.data.conference_name);
-        if (response.data.mode) {
-          setConferenceMode(response.data.mode);
-        }
+        if (response.data.mode) setConferenceMode(response.data.mode);
       } catch (error) {
         console.error("Error fetching conference:", error);
       }
@@ -104,38 +102,49 @@ function AuthorForm({ conferenceName }) {
     fetchConference();
   }, [id]);
 
+  // ── Seed first author from logged-in user ─────────────────────────
   useEffect(() => {
     if (auth?.user) {
       setAuthors([
         {
           firstName: "",
           lastName: "",
-          email: auth?.user?.email || "",
+          email: auth.user.email || "",
           country: "",
           affiliation: "",
           webPage: "",
-          corresponding: true, // solo author is always corresponding
+          corresponding: true,
         },
       ]);
       setLoading(false);
     }
   }, [auth]);
 
+  // ── File helpers ──────────────────────────────────────────────────
   const removeFile = () => {
     setSelectedFile(null);
     setPaper(null);
-    setValidationResult(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      removeFile();
+      toast.error("Please upload a PDF file only.");
+      return;
+    }
+    setSelectedFile(file);
+    setPaper(file);
+  };
+
+  // ── Author helpers ────────────────────────────────────────────────
   const addAuthor = () => {
     if (authors.length >= 15) {
       toast.error("You can add up to 15 authors only.");
       return;
     }
-
     const newAuthors = [
       ...authors,
       {
@@ -148,32 +157,25 @@ function AuthorForm({ conferenceName }) {
         corresponding: false,
       },
     ];
-
-    // When going from 1 → 2 authors, clear the auto-corresponding flag
-    // so the user explicitly picks who the corresponding author is.
+    // 1 → 2 authors: clear auto-corresponding, user picks explicitly
     if (authors.length === 1) {
       newAuthors[0] = { ...newAuthors[0], corresponding: false };
     }
-
     setAuthors(newAuthors);
   };
 
   const removeAuthor = (index) => {
     if (index === 0) return;
     const newAuthors = authors.filter((_, i) => i !== index);
-
-    // If back down to 1 author, they are automatically corresponding.
+    // Back to 1 author → auto-corresponding
     if (newAuthors.length === 1) {
       newAuthors[0] = { ...newAuthors[0], corresponding: true };
     }
-
     setAuthors(newAuthors);
   };
 
   const handleInputChange = (index, event) => {
     const { name, value } = event.target;
-
-    // Duplicate email guard — compare against all other authors (case-insensitive)
     if (name === "email" && value.trim() !== "") {
       const duplicate = authors.some(
         (a, i) =>
@@ -182,10 +184,9 @@ function AuthorForm({ conferenceName }) {
       );
       if (duplicate) {
         toast.error("This email is already used by another author.");
-        return; // Don't update state — keep the field as-is
+        return;
       }
     }
-
     const newAuthors = [...authors];
     newAuthors[index][name] = value;
     setAuthors(newAuthors);
@@ -197,91 +198,80 @@ function AuthorForm({ conferenceName }) {
     setAuthors(newAuthors);
   };
 
-  // Ensures only one author can be marked as corresponding at a time.
   const handleCorrespondingChange = (index) => {
-    setAuthors(authors.map((author, i) => ({
-      ...author,
-      corresponding: i === index ? !author.corresponding : false,
-    })));
+    setAuthors(
+      authors.map((author, i) => ({
+        ...author,
+        corresponding: i === index ? !author.corresponding : false,
+      }))
+    );
   };
 
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    if (file.type !== "application/pdf") {
-      removeFile();
-      toast.error("Please upload a PDF file only.");
-      return;
-    }
-
-    setSelectedFile(file);
-    setPaper(file);
-    setValidationResult(null);
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-
+  // ── Form validation ───────────────────────────────────────────────
+  const validateForm = () => {
     if (!paper) {
       toast.error("Please upload a PDF manuscript before submitting.");
-      return;
+      return false;
     }
 
     const currentWordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
     if (currentWordCount < 100 || currentWordCount > 300) {
-      toast.error(`Abstract must be between 100 and 300 words. You currently have ${currentWordCount}.`);
-      return;
+      toast.error(
+        `Abstract must be between 100 and 300 words. You currently have ${currentWordCount}.`
+      );
+      return false;
     }
 
     const titleWordCount = title.trim().split(/\s+/).filter(Boolean).length;
     if (titleWordCount < 3) {
       toast.error("Title must be at least 3 words.");
-      return;
+      return false;
     }
 
-    const keywordsArray = keywords.split(",").map((kw) => kw.trim()).filter(Boolean);
+    const keywordsArray = keywords
+      .split(",")
+      .map((kw) => kw.trim())
+      .filter(Boolean);
     if (keywordsArray.length > 8) {
       toast.error("Keywords should not be more than 8.");
-      return;
+      return false;
     }
 
-    const validAuthor = authors.find(
-      (author) => author.firstName && author.email && author.country
-    );
+    const validAuthor = authors.find((a) => a.firstName && a.email && a.country);
     if (!validAuthor) {
       toast.error("At least one author must have mandatory details and country filled.");
-      return;
+      return false;
     }
 
-    // Final duplicate email check at submit time (safety net)
     const emails = authors.map((a) => a.email.trim().toLowerCase()).filter(Boolean);
-    const uniqueEmails = new Set(emails);
-    if (uniqueEmails.size !== emails.length) {
+    if (new Set(emails).size !== emails.length) {
       toast.error("Duplicate author emails detected. Each author must have a unique email.");
-      return;
+      return false;
     }
 
-    const hasCorresponding = authors.some((a) => a.corresponding);
-    if (!hasCorresponding) {
+    if (!authors.some((a) => a.corresponding)) {
       toast.error("Please select one corresponding author.");
-      return;
+      return false;
     }
 
-    // Block organizers (Editors) from submitting papers across any conference
     const isOrganizer = auth?.roles?.some((role) => role.role === "organizer");
     if (isOrganizer) {
       toast.error("Editors are not allowed to submit papers.");
-      return;
+      return false;
     }
 
+    return true;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!validateForm()) return;
     await submitForm();
   };
 
+  // ── Core submission ───────────────────────────────────────────────
   const submitForm = async () => {
     setIsSubmitting(true);
-    setShowSubmittingMessage(true);
-    setValidationResult(null);
 
     try {
       const formData = new FormData();
@@ -297,18 +287,34 @@ function AuthorForm({ conferenceName }) {
 
       const response = await axios.post("/api/author/submit-paper", formData);
 
-      const validation = response.data?.data?.validation ?? response.data?.data?.paper?.validation_info ?? null;
-      setValidationResult(validation);
+      // Check PDF validation failure returned in a 201
+      const validation =
+        response.data?.data?.validation ??
+        response.data?.data?.paper?.validation_info ??
+        null;
 
       if (validation && validation.validated === false) {
         toast.error(validation.message || "PDF validation failed. Please check your file.");
-        setValidationResult(null);
         return;
       }
 
+      // ── Write fresh roles directly into auth context ─────────────
+      // The backend re-fetches user roles immediately after the upsert
+      // on the same DB connection (no replication lag) and returns them
+      // in the response. We apply them here so AllPapersOfAuthor sees
+      // the author role the moment it mounts — no polling, no retry.
+      const freshRoles = response.data?.data?.roles;
+      if (Array.isArray(freshRoles) && freshRoles.length > 0) {
+        setAuth((prev) => {
+          const updated = { ...prev, roles: freshRoles };
+          localStorage.setItem("auth", JSON.stringify(updated));
+          return updated;
+        });
+      }
+
       toast.success(response.data.message);
-      await fetchRoles(auth?.user?._id);
       navigate("/userdashboard/papers");
+
     } catch (error) {
       console.error("Submission error:", error.response?.data);
       toast.error(
@@ -316,11 +322,9 @@ function AuthorForm({ conferenceName }) {
       );
     } finally {
       setIsSubmitting(false);
-      setShowSubmittingMessage(false);
     }
   };
 
-  // Whether we're in "single author" mode — corresponding is automatic, no checkbox needed
   const isSoloAuthor = authors.length === 1;
 
   if (loading) {
@@ -338,6 +342,7 @@ function AuthorForm({ conferenceName }) {
       <div className="min-h-screen bg-background py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
 
+          {/* ── Page header ── */}
           <div className="text-center mb-12">
             <h1 className="text-4xl font-extrabold text-foreground tracking-tight">
               Submit Your Research
@@ -349,13 +354,13 @@ function AuthorForm({ conferenceName }) {
               </span>
             </p>
             <div className="mt-4 flex justify-center">
-              <div className="w-16 h-1 bg-primary rounded-full"></div>
+              <div className="w-16 h-1 bg-primary rounded-full" />
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-8">
 
-            {/* Authors Section */}
+            {/* ── Authors ── */}
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle className="text-xl flex items-center gap-2">
@@ -447,9 +452,7 @@ function AuthorForm({ conferenceName }) {
                             </SelectTrigger>
                             <SelectContent className="max-h-64 overflow-y-auto">
                               {countries.map((c) => (
-                                <SelectItem key={c} value={c}>
-                                  {c}
-                                </SelectItem>
+                                <SelectItem key={c} value={c}>{c}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -470,15 +473,12 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     </div>
 
-                    {/* Corresponding author section */}
                     <div className="mt-5 px-1">
                       {isSoloAuthor ? (
-                        // Solo author: auto-corresponding, just show an informational note
                         <p className="text-xs text-muted-foreground italic">
                           You are automatically the corresponding author.
                         </p>
                       ) : (
-                        // Multiple authors: show checkbox to let them choose
                         <div className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -518,7 +518,7 @@ function AuthorForm({ conferenceName }) {
               </CardContent>
             </Card>
 
-            {/* Paper Details Section */}
+            {/* ── Paper Details ── */}
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle className="text-xl flex items-center gap-2">
@@ -583,7 +583,7 @@ function AuthorForm({ conferenceName }) {
               </CardContent>
             </Card>
 
-            {/* Manuscript Upload Section */}
+            {/* ── Manuscript Upload ── */}
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle className="text-xl flex items-center gap-2">
@@ -663,9 +663,7 @@ function AuthorForm({ conferenceName }) {
                       </div>
                     ) : (
                       <div>
-                        <p className="text-lg font-bold text-foreground">
-                          Click to upload PDF
-                        </p>
+                        <p className="text-lg font-bold text-foreground">Click to upload PDF</p>
                         <p className="text-sm text-muted-foreground font-medium">
                           IEEE Format Preferred
                         </p>
@@ -676,7 +674,7 @@ function AuthorForm({ conferenceName }) {
               </CardContent>
             </Card>
 
-            {/* Submit Button */}
+            {/* ── Submit button ── */}
             <div className="pt-8">
               <Button
                 type="submit"
@@ -693,7 +691,7 @@ function AuthorForm({ conferenceName }) {
                 )}
               </Button>
 
-              {showSubmittingMessage && (
+              {isSubmitting && (
                 <p className="text-center text-xs font-bold text-primary mt-4 uppercase tracking-widest animate-pulse">
                   Your submission is being processed. Please do not refresh.
                 </p>
