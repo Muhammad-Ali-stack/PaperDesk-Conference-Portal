@@ -9,9 +9,9 @@ const getSupabasePublicUrl = (bucket, filePath) => {
   return `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 };
 
-
-
-
+// ============================================================================
+// 1. submitPaperController
+// ============================================================================
 export const submitPaperController = async (req, res) => {
   try {
     const {
@@ -182,13 +182,9 @@ export const submitPaperController = async (req, res) => {
 
     if (roleUpsertError) {
       console.error("[submitPaper] Role upsert error:", roleUpsertError.message);
-      // Non-fatal: log but continue — paper is already uploaded
     }
 
-    // ── 15b. Re-fetch ALL roles for this user on the same DB ─────
-    // We do this immediately after the confirmed upsert (same connection,
-    // no replication lag) and return them in the 201 response.
-    // The frontend applies them directly to auth context — no polling needed.
+    // ── 15b. Re-fetch ALL roles for this user ────────────────────
     const { data: freshRoles } = await supabase
       .from("user_conference_roles")
       .select("role, conference_id, expertise, conferences!conference_id(conference_name, acronym)")
@@ -245,6 +241,18 @@ export const submitPaperController = async (req, res) => {
       });
 
     // ── 19. Handle authors ───────────────────────────────────────
+    // FIX: Fetch the submitting user's email so we only bind user_id to
+    // the author row whose email matches the submitter. Co-authors get
+    // user_id: null — they are resolved at query-time via the email-based
+    // OR lookup in getUserConferencePapersController.
+    const { data: submitterData } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const submitterEmail = submitterData?.email?.trim().toLowerCase() ?? null;
+
     // Fetch any existing author rows by email in one query (avoids N+1).
     const { data: existingAuthors } = await supabase
       .from("authors")
@@ -262,9 +270,12 @@ export const submitPaperController = async (req, res) => {
       let authorId = existingAuthorMap.get(emailKey);
 
       if (!authorId) {
-        // Author not seen before — insert a new row.
-        // The UNIQUE (email) constraint on authors prevents duplicates
-        // at the DB level even under race conditions.
+        // FIX: Only bind user_id if this author's email matches the
+        // submitting user's account email. Co-author rows get user_id: null
+        // so that when a co-author later registers with the same email,
+        // the email-based OR query picks them up automatically.
+        const isSubmitter = submitterEmail && emailKey === submitterEmail;
+
         const { data: newAuthor, error: insertError } = await supabase
           .from("authors")
           .insert({
@@ -274,13 +285,12 @@ export const submitPaperController = async (req, res) => {
             country:     authorData.country    || null,
             affiliation: authorData.affiliation || null,
             web_page:    authorData.webPage    || null,
-            user_id:     userId,
+            user_id:     isSubmitter ? userId : null,
           })
           .select("id")
           .single();
 
         if (insertError) {
-          // Race condition hit the UNIQUE constraint — fetch existing row.
           if (insertError.code === "23505") {
             const { data: raceAuthor } = await supabase
               .from("authors")
@@ -306,8 +316,6 @@ export const submitPaperController = async (req, res) => {
     }
 
     // ── 20. Link authors to paper ────────────────────────────────
-    // corresponding_author lives on paper_authors (not authors) because
-    // a person can be corresponding on one paper but not another.
     if (authorLinks.length > 0) {
       await supabase.from("paper_authors").insert(
         authorLinks.map(({ authorId, corresponding }) => ({
@@ -375,10 +383,6 @@ export const submitPaperController = async (req, res) => {
     }
 
     // ── 22. Return success with fresh roles ──────────────────────
-    // rolesPayload was fetched in step 15b immediately after the upsert
-    // on the same DB connection — guaranteed to include the new author role.
-    // The frontend writes these directly into auth context, eliminating
-    // any need to poll /api/auth/user-roles separately.
     return res.status(201).json({
       success: true,
       message: "Paper submitted successfully.",
@@ -398,6 +402,7 @@ export const submitPaperController = async (req, res) => {
     });
   }
 };
+
 // ============================================================================
 // 2. updatePaperController
 // ============================================================================
@@ -411,7 +416,6 @@ export const updatePaperController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Paper ID is required." });
     }
 
-    // Fetch existing paper
     const { data: existingPaper, error: fetchError } = await supabase
       .from("research_papers")
       .select("*")
@@ -422,7 +426,6 @@ export const updatePaperController = async (req, res) => {
       return res.status(404).json({ success: false, message: "Paper not found." });
     }
 
-    // Check resubmission limit if this is a resubmission
     if (isResubmit === true || isResubmit === "true") {
       if (existingPaper.conference_id) {
         const { data: conference } = await supabase
@@ -445,7 +448,6 @@ export const updatePaperController = async (req, res) => {
 
     const updates = {};
 
-    // Handle resubmission state changes
     if (isResubmit === true || isResubmit === "true") {
       updates.status = "resubmitted";
       updates.final_decision = "pending";
@@ -459,12 +461,10 @@ export const updatePaperController = async (req, res) => {
       };
     }
 
-    // Update basic fields if provided
     if (title) updates.title = title;
     if (abstract) updates.abstract = abstract;
     if (keywords) updates.keywords = keywords.split(",").map((kw) => kw.trim());
 
-    // Handle file replacement
     if (file) {
       if (file.mimetype !== "application/pdf") {
         return res.status(400).json({
@@ -482,13 +482,11 @@ export const updatePaperController = async (req, res) => {
         });
       }
 
-      // Delete old PDF file from storage
       if (existingPaper.paper_file_path) {
         const oldFileName = existingPaper.paper_file_path.split("/").pop();
         await supabase.storage.from("paper-submissions").remove([oldFileName]);
       }
 
-      // Upload new PDF file
       const fileName = `${Date.now()}_${file.originalname}`;
       const { error: uploadError } = await supabase.storage
         .from("paper-submissions")
@@ -518,12 +516,10 @@ export const updatePaperController = async (req, res) => {
       }
     }
 
-    // Return early if no changes
     if (Object.keys(updates).length === 0) {
       return res.status(200).json({ success: true, message: "No changes detected." });
     }
 
-    // Apply updates to database
     const { data: updatedPaper, error: updateError } = await supabase
       .from("research_papers")
       .update(updates)
@@ -535,7 +531,6 @@ export const updatePaperController = async (req, res) => {
       return res.status(500).json({ success: false, message: "Error updating paper." });
     }
 
-    // Clean up reviews and assignments on resubmission
     if (isResubmit === true || isResubmit === "true") {
       await supabase.from("reviews").delete().eq("paper_id", paperId);
       await supabase.from("assignments").delete().eq("paper_id", paperId);
@@ -557,7 +552,9 @@ export const updatePaperController = async (req, res) => {
 };
 
 // ============================================================================
-// 3. getAuthorConferencesController
+// 3. getAuthorConferencesController — FIXED
+// FIX: Now includes conferences where the user is a co-author by email,
+// not just conferences where they have an explicit user_conference_roles row.
 // ============================================================================
 export const getAuthorConferencesController = async (req, res) => {
   try {
@@ -567,23 +564,71 @@ export const getAuthorConferencesController = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID is required." });
     }
 
-    const { data, error } = await supabase
+    // Fetch the user's email — required to find co-authored papers
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (userError || !userData) {
+      return res.status(401).json({ success: false, message: "User not found." });
+    }
+
+    const userEmail = userData.email?.trim().toLowerCase();
+
+    // ── Path A: conferences where this user has an explicit "author" role ──
+    const { data: roleRows } = await supabase
       .from("user_conference_roles")
       .select("conference_id, conferences!conference_id(id, conference_name, acronym)")
       .eq("user_id", userId)
       .eq("role", "author");
 
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Error fetching conferences.",
-        data: { error: error.message },
-      });
+    const roleConferences = (roleRows || [])
+      .map((r) => r.conferences)
+      .filter(Boolean);
+
+    // ── Path B: conferences where this user is a co-author by email ────────
+    // Co-author rows have user_id: null (set at submission time), so we
+    // match purely by email address.
+    const { data: emailAuthorRows } = await supabase
+      .from("authors")
+      .select("id")
+      .eq("email", userEmail);
+
+    const emailAuthorIds = (emailAuthorRows || []).map((a) => a.id);
+
+    let emailConferences = [];
+    if (emailAuthorIds.length > 0) {
+      const { data: paperAuthorRows } = await supabase
+        .from("paper_authors")
+        .select("paper_id")
+        .in("author_id", emailAuthorIds);
+
+      const paperIds = [
+        ...new Set((paperAuthorRows || []).map((pa) => pa.paper_id)),
+      ];
+
+      if (paperIds.length > 0) {
+        const { data: paperRows } = await supabase
+          .from("research_papers")
+          .select("conference_id, conferences!conference_id(id, conference_name, acronym)")
+          .in("id", paperIds);
+
+        emailConferences = (paperRows || [])
+          .map((p) => p.conferences)
+          .filter(Boolean);
+      }
     }
 
-    const conferences = (data || [])
-      .map((row) => row.conferences)
-      .filter(Boolean);
+    // ── Merge and deduplicate by conference id ─────────────────────────────
+    const allConferences = [...roleConferences, ...emailConferences];
+    const seen = new Set();
+    const conferences = allConferences.filter((c) => {
+      if (!c?.id || seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
 
     return res.status(200).json({
       success: true,
@@ -688,13 +733,11 @@ export const deletePaperController = async (req, res) => {
       return res.status(404).json({ success: false, message: "Paper not found." });
     }
 
-    // Delete PDF file from storage
     if (paper.paper_file_path) {
       const fileName = paper.paper_file_path.split("/").pop();
       await supabase.storage.from("paper-submissions").remove([fileName]);
     }
 
-    // Clean up authors and their roles
     for (const pa of paper.paper_authors || []) {
       const authorUserId = pa.authors?.user_id;
       const authorId = pa.author_id;
@@ -719,7 +762,6 @@ export const deletePaperController = async (req, res) => {
       }
     }
 
-    // Delete the paper
     await supabase.from("research_papers").delete().eq("id", id);
 
     return res.status(200).json({
@@ -737,7 +779,7 @@ export const deletePaperController = async (req, res) => {
 };
 
 // ============================================================================
-// 6. getAllResearchPapersController - FIXED
+// 6. getAllResearchPapersController
 // ============================================================================
 export const getAllResearchPapersController = async (req, res) => {
   try {
@@ -746,7 +788,6 @@ export const getAllResearchPapersController = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized." });
     }
 
-    // Step 1: Get all author IDs that belong to this user
     const { data: authors, error: authorError } = await supabase
       .from("authors")
       .select("id")
@@ -761,7 +802,6 @@ export const getAllResearchPapersController = async (req, res) => {
       return res.status(200).json({ success: true, message: "No papers found.", data: { papers: [] } });
     }
 
-    // Step 2: Get all paper_authors entries for those author IDs
     const { data: paperAuthors, error: paError } = await supabase
       .from("paper_authors")
       .select("paper_id")
@@ -776,7 +816,6 @@ export const getAllResearchPapersController = async (req, res) => {
       return res.status(200).json({ success: true, message: "No papers found.", data: { papers: [] } });
     }
 
-    // Step 3: Fetch full paper details with reviews
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select(`
@@ -825,7 +864,6 @@ export const getResearchPaperByIdController = async (req, res) => {
       return res.status(400).json({ message: "Paper ID is required." });
     }
 
-    // Fetch user's email from database (for co-author check)
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("email")
@@ -838,7 +876,6 @@ export const getResearchPaperByIdController = async (req, res) => {
 
     const userEmail = userData.email;
 
-    // Fetch paper WITH author information via junction table
     const { data: paper, error: paperError } = await supabase
       .from("research_papers")
       .select("*, paper_authors(author_id, authors(id, user_id, first_name, email))")
@@ -847,20 +884,17 @@ export const getResearchPaperByIdController = async (req, res) => {
 
     if (paperError || !paper) {
       console.error(`Paper ${id} not found:`, paperError);
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: "Paper not found.",
-        paperId: id 
+        paperId: id,
       });
     }
 
-    // FIXED: Check if user is one of the paper authors
-    // Match by: authors.user_id (papers you submitted) OR authors.email (co-authored papers)
     const isAuthor = paper.paper_authors?.some(
       (pa) => pa.authors?.user_id === userId || pa.authors?.email === userEmail
     );
 
     if (!isAuthor) {
-      // Check if user is organizer
       const { data: userRole } = await supabase
         .from("user_conference_roles")
         .select("role")
@@ -890,23 +924,31 @@ export const getResearchPaperByIdController = async (req, res) => {
 };
 
 // ============================================================================
-// FIXED: getUserConferencePapersController
+// 8. getUserConferencePapersController — FIXED
+//
+// FIX 1: Removed the hard role-check gate that was 403-ing co-authors before
+//         they ever reached the email-based query.
+// FIX 2: Email-based OR query now correctly finds co-author rows where
+//         user_id is null but email matches the logged-in user.
+// FIX 3: Attaches is_corresponding flag to each paper so the frontend
+//         PaperCard can gate Edit/Delete/Resubmit buttons correctly.
 // ============================================================================
-
 export const getUserConferencePapersController = async (req, res) => {
   try {
-    // Disable caching
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
     const { userId, conferenceId } = req.params;
 
     if (!userId || !conferenceId) {
-      return res.status(400).json({ success: false, message: "User ID and Conference ID are required." });
+      return res.status(400).json({
+        success: false,
+        message: "User ID and Conference ID are required.",
+      });
     }
 
-    // Fetch user email from database (JWT doesn't include email)
+    // Fetch user email — JWT doesn't include it and we need it for co-author lookup
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("email")
@@ -918,63 +960,73 @@ export const getUserConferencePapersController = async (req, res) => {
       return res.status(401).json({ success: false, message: "User not found." });
     }
 
-    const userEmail = userData.email;
+    const userEmail = userData.email?.trim().toLowerCase();
 
-    // Verify that the user is an author in this conference
-    const { data: roleCheck } = await supabase
-      .from("user_conference_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("conference_id", conferenceId)
-      .eq("role", "author")
-      .maybeSingle();
-
-    if (!roleCheck) {
-      return res.status(403).json({ success: false, message: "You are not registered as an author for this conference." });
-    }
-
-    // Step 1: Get all author IDs for this user
-    // Search by BOTH user_id (papers you submitted) AND email (papers where you're a co-author)
+    // ── Step 1: Find all author records for this user ──────────────────────
+    // Match by user_id (papers the user submitted themselves) OR by email
+    // (papers where this user was added as a co-author — user_id may be null
+    // on those rows if the co-author hadn't registered at submission time).
     const { data: authors, error: authorError } = await supabase
       .from("authors")
-      .select("id")
+      .select("id, email, user_id")
       .or(`user_id.eq.${userId},email.eq.${userEmail}`);
 
     if (authorError) {
       console.error("[ERROR] Step 1 - authors fetch:", authorError);
-      return res.status(500).json({ success: false, message: "Error fetching authors.", error: authorError.message });
+      return res.status(500).json({
+        success: false,
+        message: "Error fetching authors.",
+        error: authorError.message,
+      });
     }
 
-    const authorIds = authors?.map((a) => a.id) || [];
-    console.log(`[DEBUG] userId=${userId}, conferenceId=${conferenceId}`);
-    console.log(`[DEBUG] userEmail=${userEmail}`);
-    console.log(`[DEBUG] Found ${authorIds.length} author records (user_id OR email match)`);
-    console.log(`[DEBUG] authorIds=${authorIds.join(",")}`);
+    const authorIds = (authors || []).map((a) => a.id);
+ 
 
     if (authorIds.length === 0) {
-      return res.status(200).json({ success: true, message: "No papers found.", data: { papers: [] } });
+      return res.status(200).json({
+        success: true,
+        message: "No papers found.",
+        data: { papers: [] },
+      });
     }
 
-    // Step 2: Get paper_ids from paper_authors for these author IDs
+    // ── Step 2: Get paper_ids from paper_authors for these author IDs ──────
     const { data: paperAuthors, error: paError } = await supabase
       .from("paper_authors")
-      .select("paper_id")
+      .select("paper_id, author_id, corresponding_author")
       .in("author_id", authorIds);
 
     if (paError) {
       console.error("[ERROR] Step 2 - paper_authors fetch:", paError);
-      return res.status(500).json({ success: false, message: "Error fetching paper authors.", error: paError.message });
+      return res.status(500).json({
+        success: false,
+        message: "Error fetching paper authors.",
+        error: paError.message,
+      });
     }
 
-    const paperIds = [...new Set(paperAuthors?.map((pa) => pa.paper_id) || [])];
-    console.log(`[DEBUG] Found ${paperIds.length} papers linked to these authors`);
-    console.log(`[DEBUG] paperIds=${paperIds.join(",")}`);
+    const paperIds = [...new Set((paperAuthors || []).map((pa) => pa.paper_id))];
+
 
     if (paperIds.length === 0) {
-      return res.status(200).json({ success: true, message: "No papers found.", data: { papers: [] } });
+      return res.status(200).json({
+        success: true,
+        message: "No papers found.",
+        data: { papers: [] },
+      });
     }
 
-    // Step 3: Fetch full paper details, filtered by conference_id
+    // Build a lookup: paperID → is this user the corresponding author?
+    // A user is corresponding on a paper if any of their author-IDs is
+    // marked corresponding_author=true on that paper's paper_authors row.
+    const correspondingPaperIds = new Set(
+      (paperAuthors || [])
+        .filter((pa) => pa.corresponding_author === true)
+        .map((pa) => pa.paper_id)
+    );
+
+    // ── Step 3: Fetch full paper details filtered by conference_id ─────────
     const { data: papers, error: papersError } = await supabase
       .from("research_papers")
       .select(`
@@ -986,7 +1038,7 @@ export const getUserConferencePapersController = async (req, res) => {
         status,
         final_decision,
         created_at,
-        manuscript_number,  
+        manuscript_number,
         conference_id,
         conference_name,
         conference_acronym,
@@ -1010,20 +1062,35 @@ export const getUserConferencePapersController = async (req, res) => {
 
     if (papersError) {
       console.error("[ERROR] Step 3 - papers fetch:", papersError);
-      return res.status(500).json({ success: false, message: "Error fetching papers.", error: papersError.message });
+      return res.status(500).json({
+        success: false,
+        message: "Error fetching papers.",
+        error: papersError.message,
+      });
     }
 
-    console.log(`[DEBUG] Fetched ${papers?.length || 0} papers from conference ${conferenceId}`);
+    // ── Step 4: Attach is_corresponding flag to each paper ────────────────
+    // The frontend PaperCard reads paper.is_corresponding to decide whether
+    // to show Edit / Delete / Resubmit buttons. We compute it server-side
+    // so the client never has to re-derive it from raw author lists.
+    const papersWithFlag = (papers || []).map((paper) => ({
+      ...paper,
+      is_corresponding: correspondingPaperIds.has(paper.id),
+    }));
+
+  
 
     return res.status(200).json({
       success: true,
       message: "Papers fetched successfully.",
-      data: { papers: papers || [] },
+      data: { papers: papersWithFlag },
     });
   } catch (error) {
     console.error("getUserConferencePapersController error:", error);
-    return res.status(500).json({ success: false, message: "Server error.", error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      error: error.message,
+    });
   }
 };
-
-

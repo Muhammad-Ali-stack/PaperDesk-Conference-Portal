@@ -20,7 +20,7 @@ export default function AdminPrivateRoute() {
           setOk(false);
         }
       } catch (error) {
-        console.log("AdminPrivateRoute error:", error?.response?.data);
+        
 
         if (
           error?.response?.status === 401 &&

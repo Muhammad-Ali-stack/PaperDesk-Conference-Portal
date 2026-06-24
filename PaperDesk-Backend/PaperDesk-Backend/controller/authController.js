@@ -8,7 +8,7 @@ import { sendMail, isEmailReady } from "../config/mailer.js";
 const OTP_EXPIRY_MINUTES = 10;
 const ACCESS_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
-const MAX_OTP_ATTEMPTS = 10;
+const MAX_OTP_ATTEMPTS = 100;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -101,13 +101,13 @@ export const registerController = async (req, res) => {
       name,
       email,
       phone,
-      recoveryKey, 
+      recoveryKey,
       address,
       expertise,
       conferenceId,
       role,
       invitationToken,
-      password,        // NEW
+      password,
     } = req.body;
 
     if (!name)     return res.status(400).json({ success: false, message: "Name is required." });
@@ -151,7 +151,6 @@ export const registerController = async (req, res) => {
       .eq("email", email)
       .maybeSingle();
 
-    // ── Existing user — add a new role ──
     if (existingUser) {
       if (!role || (role !== "reviewer" && role !== "organizer")) {
         return res.status(409).json({
@@ -212,21 +211,19 @@ export const registerController = async (req, res) => {
       });
     }
 
-    // ── New user — hash password and save ──
-// ── New user — hash password and save ──
-const passwordHash    = await bcrypt.hash(password, 12);
-const recoveryKeyHash = recoveryKey ? await bcrypt.hash(recoveryKey, 10) : null;
+    const passwordHash    = await bcrypt.hash(password, 12);
+    const recoveryKeyHash = recoveryKey ? await bcrypt.hash(recoveryKey, 10) : null;
 
-const { data: savedUser, error: insertError } = await supabase
-  .from("users")
-  .insert({
-    name,
-    email,
-    phone,
-    password_hash:     passwordHash,
-    recovery_key_hash: recoveryKeyHash,
-    ...(address && { address }),
-  })
+    const { data: savedUser, error: insertError } = await supabase
+      .from("users")
+      .insert({
+        name,
+        email,
+        phone,
+        password_hash:     passwordHash,
+        recovery_key_hash: recoveryKeyHash,
+        ...(address && { address }),
+      })
       .select()
       .single();
 
@@ -302,9 +299,6 @@ export const loginController = async (req, res) => {
       });
     }
 
-    // ── Password verification ────────────────────────────────
-    // Users who registered before password was introduced won't
-    // have a hash — allow them to set one via forgot-password flow.
     if (user.password_hash) {
       const passwordValid = await bcrypt.compare(password, user.password_hash);
       if (!passwordValid) {
@@ -314,14 +308,12 @@ export const loginController = async (req, res) => {
         });
       }
     } else {
-      // No password on record — tell them to reset via forgot-password
       return res.status(401).json({
         success: false,
         message: "No password set for this account. Please use 'Forgot Password' to set one.",
       });
     }
 
-    // ── Handle invitation side-effects on login ──────────────
     if (role === "reviewer" && conferenceId) {
       const expertiseArr = expertise
         ? Array.isArray(expertise) ? expertise : [expertise]
@@ -373,9 +365,6 @@ export const loginController = async (req, res) => {
       }
     }
 
-    // ── Trusted device check ─────────────────────────────────
-    // Password already verified above. Now check if this device
-    // has a valid refresh token cookie — if so, skip OTP entirely.
     const rawRefreshToken = req.cookies?.refreshToken;
 
     if (rawRefreshToken) {
@@ -385,7 +374,6 @@ export const loginController = async (req, res) => {
         const tokenMatch = await bcrypt.compare(rawRefreshToken, device.token_hash);
 
         if (tokenMatch) {
-          // Rotate the refresh token on every use
           const newRaw = crypto.randomBytes(64).toString("hex");
           const newHash = await bcrypt.hash(newRaw, 10);
           const newExpiry = new Date(Date.now() + thirtyDaysMs()).toISOString();
@@ -428,7 +416,6 @@ export const loginController = async (req, res) => {
       }
     }
 
-    // ── OTP flow — no trusted device found ──────────────────
     if (!isEmailReady()) {
       return res.status(503).json({
         success: false,
@@ -576,7 +563,7 @@ export const verifyOtpController = async (req, res) => {
 };
 
 // ============================================================
-// forgotPasswordController  (NEW — replaces any existing stub)
+// forgotPasswordController
 // ============================================================
 export const forgotPasswordController = async (req, res) => {
   try {
@@ -598,7 +585,6 @@ export const forgotPasswordController = async (req, res) => {
       return res.status(404).json({ success: false, message: "No account found with that email." });
     }
 
-    // Verify recovery key
     if (!user.recovery_key_hash) {
       return res.status(404).json({
         success: false,
@@ -625,7 +611,6 @@ export const forgotPasswordController = async (req, res) => {
       return res.status(500).json({ success: false, message: "Error updating password." });
     }
 
-    // Revoke all trusted devices so a stolen device can't bypass the new password
     await supabase.from("trusted_devices").delete().eq("user_id", user.id);
 
     return res.status(200).json({
@@ -682,7 +667,6 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
-    // Rotate: delete old, issue new
     await supabase.from("trusted_devices").delete().eq("id", matchedDevice.id);
 
     const newRaw = crypto.randomBytes(64).toString("hex");
@@ -859,13 +843,27 @@ export const updateProfileController = async (req, res) => {
 };
 
 // ============================================================
-// getUserRolesController
+// getUserRolesController — FIXED
+//
+// Previously only queried user_conference_roles, so co-authors
+// (who never get a role row inserted) always got an empty array.
+//
+// Fix: also check if the user's email exists in the authors
+// table. If so, synthesize a virtual "author" role entry for
+// every conference they are linked to as a co-author.
+// This makes the sidebar Author section appear for co-authors
+// and lets getAuthorConferencesController find their papers.
 // ============================================================
 export const getUserRolesController = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const { data: roles, error } = await supabase
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required." });
+    }
+
+    // ── Step 1: Fetch explicit roles from user_conference_roles ──
+    const { data: roleRows, error } = await supabase
       .from("user_conference_roles")
       .select("role, conference_id, expertise, conferences!conference_id(conference_name, acronym)")
       .eq("user_id", userId);
@@ -874,20 +872,109 @@ export const getUserRolesController = async (req, res) => {
       return res.status(500).json({ success: false, message: "Error fetching roles." });
     }
 
+    const explicitRoles = (roleRows || []).map((r) => ({
+      role: r.role,
+      conferenceId: r.conference_id,
+      expertise: r.expertise,
+      conferenceName: r.conferences?.conference_name || null,
+      conferenceAcronym: r.conferences?.acronym || null,
+      awaitingConference: !r.conference_id,
+    }));
+
+    // ── Step 2: Fetch user's email for co-author lookup ──────────
+    const { data: userData } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const userEmail = userData?.email?.trim().toLowerCase();
+
+    if (!userEmail) {
+      return res.status(200).json({
+        success: true,
+        data: { roles: explicitRoles },
+      });
+    }
+
+    // ── Step 3: Find author rows matching this user's email ──────
+    // These are co-author rows where user_id is null (set at
+    // submission time when the co-author had no account yet, OR
+    // when the submitter was a different user).
+    const { data: authorRows } = await supabase
+      .from("authors")
+      .select("id")
+      .eq("email", userEmail);
+
+    const authorIds = (authorRows || []).map((a) => a.id);
+
+    if (authorIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: { roles: explicitRoles },
+      });
+    }
+
+    // ── Step 4: Trace author IDs → paper IDs → conference IDs ───
+    const { data: paperAuthorRows } = await supabase
+      .from("paper_authors")
+      .select("paper_id")
+      .in("author_id", authorIds);
+
+    const paperIds = [
+      ...new Set((paperAuthorRows || []).map((pa) => pa.paper_id)),
+    ];
+
+    if (paperIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: { roles: explicitRoles },
+      });
+    }
+
+    const { data: paperRows } = await supabase
+      .from("research_papers")
+      .select("conference_id, conferences!conference_id(conference_name, acronym)")
+      .in("id", paperIds);
+
+    // ── Step 5: Build virtual "author" roles for co-author conferences
+    // Only add if the user doesn't already have an explicit "author"
+    // role for that conference — avoids duplicates in the sidebar.
+    const explicitAuthorConferenceIds = new Set(
+      explicitRoles
+        .filter((r) => r.role === "author" && r.conferenceId)
+        .map((r) => r.conferenceId)
+    );
+
+    const seenCoAuthorConferenceIds = new Set();
+    const coAuthorRoles = [];
+
+    for (const paperRow of paperRows || []) {
+      const confId = paperRow.conference_id;
+      if (!confId) continue;
+      if (explicitAuthorConferenceIds.has(confId)) continue;
+      if (seenCoAuthorConferenceIds.has(confId)) continue;
+
+      seenCoAuthorConferenceIds.add(confId);
+      coAuthorRoles.push({
+        role: "author",
+        conferenceId: confId,
+        expertise: null,
+        conferenceName: paperRow.conferences?.conference_name || null,
+        conferenceAcronym: paperRow.conferences?.acronym || null,
+        awaitingConference: false,
+        isCoAuthor: true,
+      });
+    }
+
+    const allRoles = [...explicitRoles, ...coAuthorRoles];
+
     return res.status(200).json({
       success: true,
-      data: {
-        roles: (roles || []).map((r) => ({
-          role: r.role,
-          conferenceId: r.conference_id,
-          expertise: r.expertise,
-          conferenceName: r.conferences?.conference_name || null,
-          conferenceAcronym: r.conferences?.acronym || null,
-          awaitingConference: !r.conference_id,
-        })),
-      },
+      data: { roles: allRoles },
     });
   } catch (error) {
+    console.error("[getUserRolesController] Unexpected error:", error.message);
     return res.status(500).json({ success: false, message: "Error fetching user roles." });
   }
 };
