@@ -683,3 +683,7 @@ ALTER TABLE reviews ADD COLUMN IF NOT EXISTS comments_for_organizers TEXT;
 
 -- paper_authors: corresponding_author flag per paper
 ALTER TABLE paper_authors ADD COLUMN IF NOT EXISTS corresponding_author BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- users: password auth columns (introduced in v2.1)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash      TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_key_hash  TEXT;

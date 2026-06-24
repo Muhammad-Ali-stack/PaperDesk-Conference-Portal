@@ -9,11 +9,10 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Loader2, ChevronDown, Search, CheckCircle2, X } from "lucide-react";
+import { Loader2, ChevronDown, Search, CheckCircle2, X, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** ISO2 code → emoji flag (pure JS, zero network) */
 function isoToFlag(iso2) {
   if (!iso2 || iso2.length !== 2) return "🏳️";
   return [...iso2.toUpperCase()]
@@ -25,7 +24,6 @@ function digitsOnly(v) {
   return (v || "").replace(/\D/g, "");
 }
 
-// Per-country national number length hints
 const PHONE_HINTS = {
   PK:{min:10,max:10},US:{min:10,max:10},CA:{min:10,max:10},
   GB:{min:10,max:10},IN:{min:10,max:10},AE:{min:9,max:9},
@@ -40,9 +38,48 @@ const PHONE_HINTS = {
   SG:{min:8,max:8},  NZ:{min:8,max:9}, TH:{min:9,max:9},
 };
 
-// ─── PhoneField ────────────────────────────────────────────────────────────────
+// ─── PasswordStrength ─────────────────────────────────────────────────────────
+// Used for both the password field and the recovery key field.
+const PasswordStrength = ({ password, checks: customChecks }) => {
+  if (!password) return null;
+
+  const checks = customChecks || [
+    { label: "8+ characters",    pass: password.length >= 8 },
+    { label: "Uppercase letter", pass: /[A-Z]/.test(password) },
+    { label: "Lowercase letter", pass: /[a-z]/.test(password) },
+    { label: "Number",           pass: /[0-9]/.test(password) },
+    { label: "Special character",pass: /[^A-Za-z0-9]/.test(password) },
+  ];
+
+  const passed = checks.filter((c) => c.pass).length;
+  const color  =
+    passed <= 1 ? "bg-destructive"
+    : passed <= 2 ? "bg-yellow-500"
+    : passed <= 3 ? "bg-blue-500"
+    : passed <= 4 ? "bg-blue-600"
+    : "bg-green-500";
+
+  return (
+    <div className="space-y-1.5 mt-1.5">
+      <div className="flex gap-1">
+        {checks.map((_, i) => (
+          <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < passed ? color : "bg-muted"}`} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {checks.map((c, i) => (
+          <span key={i} className={`text-[10px] font-medium ${c.pass ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+            {c.pass ? "✓" : "·"} {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── PhoneField ───────────────────────────────────────────────────────────────
 const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, register, errors }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]     = useState(false);
   const [search, setSearch] = useState("");
   const dropdownRef = useRef(null);
   const searchRef   = useRef(null);
@@ -75,10 +112,8 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
       if (digits.length < 4) return "Enter a valid phone number.";
       const hint = PHONE_HINTS[selectedCountry?.code];
       if (hint) {
-        if (digits.length < hint.min)
-          return `Must be ${hint.min} digits for ${selectedCountry.name}.`;
-        if (digits.length > hint.max)
-          return `Max ${hint.max} digits for ${selectedCountry.name}.`;
+        if (digits.length < hint.min) return `Must be ${hint.min} digits for ${selectedCountry.name}.`;
+        if (digits.length > hint.max) return `Max ${hint.max} digits for ${selectedCountry.name}.`;
       } else if (digits.length > 15) {
         return "Too long — max 15 digits.";
       }
@@ -91,9 +126,7 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
   return (
     <div className="space-y-1.5">
       <Label htmlFor="phone">Phone number</Label>
-
       <div className="flex" ref={dropdownRef}>
-        {/* ── Dial-code trigger button ── */}
         <button
           type="button"
           disabled={loading}
@@ -116,22 +149,15 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : selectedCountry ? (
             <>
-              <span className="text-xl leading-none select-none" aria-hidden>
-                {selectedCountry.flag}
-              </span>
-              <span className="text-muted-foreground font-mono text-xs tracking-tight">
-                {selectedCountry.dial}
-              </span>
+              <span className="text-xl leading-none select-none" aria-hidden>{selectedCountry.flag}</span>
+              <span className="text-muted-foreground font-mono text-xs tracking-tight">{selectedCountry.dial}</span>
             </>
           ) : (
             <span className="text-muted-foreground text-xs">+--</span>
           )}
-          <ChevronDown
-            className={`h-3.5 w-3.5 text-muted-foreground ml-auto transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          />
+          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground ml-auto transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </button>
 
-        {/* ── Number input ── */}
         <Input
           id="phone"
           type="tel"
@@ -148,14 +174,12 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
           className={`rounded-l-none border-l-0 flex-1 font-mono ${hasError ? "border-destructive" : ""}`}
         />
 
-        {/* ── Dropdown panel ── */}
         {open && (
           <div
             className="absolute z-50 mt-11 w-72 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
             role="listbox"
             aria-label="Country list"
           >
-            {/* Search bar */}
             <div className="p-2.5 border-b border-border bg-muted/20">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -165,31 +189,19 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
                   placeholder="Search by country or code…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="
-                    w-full pl-8 pr-8 py-2 text-sm
-                    bg-background border border-input rounded-lg
-                    focus:outline-none focus:ring-2 focus:ring-ring
-                    placeholder:text-muted-foreground
-                  "
+                  className="w-full pl-8 pr-8 py-2 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
                 />
                 {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
+                  <button type="button" onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Country list */}
             <ul className="max-h-56 overflow-y-auto overscroll-contain py-1">
               {filtered.length === 0 ? (
-                <li className="px-4 py-6 text-sm text-muted-foreground text-center">
-                  No countries match "{search}"
-                </li>
+                <li className="px-4 py-6 text-sm text-muted-foreground text-center">No countries match "{search}"</li>
               ) : (
                 filtered.map((c) => {
                   const isSelected = selectedCountry?.code === c.code;
@@ -197,25 +209,13 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
                     <li key={c.code} role="option" aria-selected={isSelected}>
                       <button
                         type="button"
-                        onClick={() => {
-                          onCountryChange(c);
-                          setOpen(false);
-                          setSearch("");
-                        }}
-                        className={`
-                          w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left
-                          transition-colors hover:bg-accent
-                          ${isSelected ? "bg-accent/60 font-medium" : ""}
-                        `}
+                        onClick={() => { onCountryChange(c); setOpen(false); setSearch(""); }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors hover:bg-accent ${isSelected ? "bg-accent/60 font-medium" : ""}`}
                       >
-                        <span className="text-xl w-8 text-center shrink-0 select-none" aria-hidden>
-                          {c.flag}
-                        </span>
+                        <span className="text-xl w-8 text-center shrink-0 select-none" aria-hidden>{c.flag}</span>
                         <span className="flex-1 truncate text-foreground">{c.name}</span>
                         <span className="text-muted-foreground font-mono text-xs shrink-0">{c.dial}</span>
-                        {isSelected && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                        )}
+                        {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />}
                       </button>
                     </li>
                   );
@@ -223,7 +223,6 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
               )}
             </ul>
 
-            {/* Footer */}
             {filtered.length > 0 && (
               <div className="px-3 py-2 border-t border-border bg-muted/10">
                 <p className="text-[11px] text-muted-foreground">
@@ -236,7 +235,6 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
         )}
       </div>
 
-      {/* Validation message or hint */}
       {errors.phone ? (
         <p className="text-destructive text-xs font-medium flex items-center gap-1">
           <X className="h-3 w-3 shrink-0" /> {errors.phone.message}
@@ -245,15 +243,14 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
         <p className="text-xs text-muted-foreground">
           Digits only — saved as{" "}
           <span className="font-mono font-medium text-foreground">{selectedCountry.dial} ···</span>
-          {PHONE_HINTS[selectedCountry.code] &&
-            ` · ${PHONE_HINTS[selectedCountry.code].min} digits`}
+          {PHONE_HINTS[selectedCountry.code] && ` · ${PHONE_HINTS[selectedCountry.code].min} digits`}
         </p>
       ) : null}
     </div>
   );
 };
 
-// ─── LocationFields ────────────────────────────────────────────────────────────
+// ─── LocationFields ───────────────────────────────────────────────────────────
 const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountryChange,
   setValue, register, errors, watch }) => {
   const [citiesData, setCitiesData]       = useState([]);
@@ -266,9 +263,7 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
     setCitiesData([]);
     setValue("city", "");
     try {
-      const res = await fetch(
-        "https://raw.githubusercontent.com/russ666/all-countries-and-cities-json/master/countries.min.json"
-      );
+      const res  = await fetch("https://raw.githubusercontent.com/russ666/all-countries-and-cities-json/master/countries.min.json");
       const data = await res.json();
       const cities = data[countryName];
       setCitiesData(Array.isArray(cities) ? cities.sort() : []);
@@ -282,15 +277,12 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
   useEffect(() => {
     if (!watchCountry) return;
     const match = countries.find((c) => c.name === watchCountry);
-    if (match && match.code !== selectedCountry?.code) {
-      onCountryChange(match);
-    }
+    if (match && match.code !== selectedCountry?.code) onCountryChange(match);
     fetchCities(watchCountry);
   }, [watchCountry]); // eslint-disable-line
 
   return (
     <div className="grid grid-cols-2 gap-4">
-      {/* Country */}
       <div className="space-y-1.5">
         <Label htmlFor="country">Country</Label>
         <div className="relative">
@@ -298,44 +290,23 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
             id="country"
             {...register("country", { required: "Select your country." })}
             disabled={countriesLoading}
-            className={`
-              w-full h-10 pl-3 pr-8 text-sm border rounded-md
-              bg-background appearance-none cursor-pointer
-              focus:outline-none focus:ring-2 focus:ring-ring
-              disabled:opacity-50 disabled:cursor-not-allowed
-              transition-colors
-              ${errors.country ? "border-destructive" : "border-input"}
-            `}
+            className={`w-full h-10 pl-3 pr-8 text-sm border rounded-md bg-background appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${errors.country ? "border-destructive" : "border-input"}`}
           >
-            <option value="">
-              {countriesLoading ? "Loading…" : "Select country"}
-            </option>
-            {countries.map((c) => (
-              <option key={c.code} value={c.name}>
-                {c.flag} {c.name}
-              </option>
-            ))}
+            <option value="">{countriesLoading ? "Loading…" : "Select country"}</option>
+            {countries.map((c) => <option key={c.code} value={c.name}>{c.flag} {c.name}</option>)}
           </select>
-          {countriesLoading ? (
-            <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground pointer-events-none" />
-          ) : (
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          )}
+          {countriesLoading
+            ? <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground pointer-events-none" />
+            : <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          }
         </div>
-        {errors.country && (
-          <p className="text-destructive text-xs font-medium flex items-center gap-1">
-            <X className="h-3 w-3" />{errors.country.message}
-          </p>
-        )}
+        {errors.country && <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{errors.country.message}</p>}
       </div>
 
-      {/* City */}
       <div className="space-y-1.5">
         <Label htmlFor="city">
           City
-          {citiesLoading && (
-            <Loader2 className="inline ml-1.5 h-3 w-3 animate-spin text-muted-foreground" />
-          )}
+          {citiesLoading && <Loader2 className="inline ml-1.5 h-3 w-3 animate-spin text-muted-foreground" />}
         </Label>
 
         {citiesData.length > 0 ? (
@@ -343,49 +314,34 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
             <select
               id="city"
               {...register("city", { required: "Select your city." })}
-              className={`
-                w-full h-10 pl-3 pr-8 text-sm border rounded-md
-                bg-background appearance-none cursor-pointer
-                focus:outline-none focus:ring-2 focus:ring-ring
-                ${errors.city ? "border-destructive" : "border-input"}
-              `}
+              className={`w-full h-10 pl-3 pr-8 text-sm border rounded-md bg-background appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring ${errors.city ? "border-destructive" : "border-input"}`}
             >
               <option value="">Select city</option>
-              {citiesData.map((city) => (
-                <option key={city} value={city}>{city}</option>
-              ))}
+              {citiesData.map((city) => <option key={city} value={city}>{city}</option>)}
             </select>
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           </div>
         ) : (
           <Input
             id="city"
-            placeholder={
-              !watchCountry ? "Country first" :
-              citiesLoading ? "Loading…" : "Your city"
-            }
+            placeholder={!watchCountry ? "Country first" : citiesLoading ? "Loading…" : "Your city"}
             disabled={!watchCountry || citiesLoading}
             {...register("city", { required: "City is required." })}
             className={errors.city ? "border-destructive" : ""}
           />
         )}
 
-        {errors.city && (
-          <p className="text-destructive text-xs font-medium flex items-center gap-1">
-            <X className="h-3 w-3" />{errors.city.message}
-          </p>
-        )}
+        {errors.city && <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{errors.city.message}</p>}
       </div>
     </div>
   );
 };
 
-// ─── Register page ──────────────────────────────────────────────────────────────
+// ─── Register page ────────────────────────────────────────────────────────────
 const Register = () => {
   const [searchParams] = useSearchParams();
-  const token          = searchParams.get("token");
+  const token = searchParams.get("token");
 
-  // Invite state
   const [inviteEmail, setInviteEmail]                   = useState("");
   const [inviteRole, setInviteRole]                     = useState("");
   const [inviteConferenceId, setInviteConferenceId]     = useState("");
@@ -394,11 +350,12 @@ const Register = () => {
   const [tokenValid, setTokenValid]                     = useState(!token);
   const [expertiseOptions, setExpertiseOptions]         = useState([]);
 
-  // UI state
-  const [isSubmitting, setIsSubmitting]       = useState(false);
+  const [isSubmitting, setIsSubmitting]         = useState(false);
   const [emailExistsError, setEmailExistsError] = useState(false);
+  const [showPassword, setShowPassword]         = useState(false);
+  const [showConfirm, setShowConfirm]           = useState(false);
+  const [showRecoveryKey, setShowRecoveryKey]   = useState(false);  // NEW
 
-  // Countries from API
   const [countries, setCountries]               = useState([]);
   const [countriesLoading, setCountriesLoading] = useState(true);
   const [selectedCountry, setSelectedCountry]   = useState(null);
@@ -408,17 +365,23 @@ const Register = () => {
   const {
     register, handleSubmit, setValue, watch,
     formState: { errors },
-  } = useForm({ defaultValues: { expertise: [], phone: "", country: "", city: "" } });
+  } = useForm({
+    defaultValues: {
+      expertise: [], phone: "", country: "", city: "",
+      password: "", confirmPassword: "",
+      recoveryKey: "", confirmRecoveryKey: "",   // NEW
+    },
+  });
 
-  const navigate = useNavigate();
+  const navigate      = useNavigate();
+  const passwordVal   = watch("password");
+  const recoveryKeyVal = watch("recoveryKey");  // NEW
 
-  // ── Fetch countries ────────────────────────────────────────────────────────
+  // ── Fetch countries ──────────────────────────────────────────────────────
   useEffect(() => {
     const fetchCountries = async () => {
       try {
-        const res  = await fetch(
-          "https://raw.githubusercontent.com/annexare/Countries/master/dist/countries.min.json"
-        );
+        const res  = await fetch("https://raw.githubusercontent.com/annexare/Countries/master/dist/countries.min.json");
         const data = await res.json();
 
         const parsed = Object.entries(data)
@@ -426,19 +389,12 @@ const Register = () => {
           .map(([code, info]) => {
             const phones = info.phone || [];
             if (!phones.length) return null;
-            return {
-              code,
-              name: info.name,
-              flag: isoToFlag(code),
-              dial: "+" + phones[0],
-            };
+            return { code, name: info.name, flag: isoToFlag(code), dial: "+" + phones[0] };
           })
           .filter(Boolean)
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setCountries(parsed);
-
-        // Default → Pakistan
         const pk = parsed.find((c) => c.code === "PK") || parsed[0];
         setSelectedCountry(pk);
         if (pk) setValue("country", pk.name);
@@ -451,7 +407,7 @@ const Register = () => {
     fetchCountries();
   }, [setValue]);
 
-  // ── Fetch invite token ─────────────────────────────────────────────────────
+  // ── Fetch invite token ───────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
     const fetchInvite = async () => {
@@ -473,14 +429,12 @@ const Register = () => {
     fetchInvite();
   }, [token, setValue]);
 
-  // ── Handle country change (syncs phone picker ↔ country select) ───────────
   const handleCountryChange = useCallback((country) => {
     setSelectedCountry(country);
     setValue("country", country.name, { shouldValidate: true });
     setValue("city", "");
   }, [setValue]);
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     setEmailExistsError(false);
@@ -491,6 +445,8 @@ const Register = () => {
         email:           data.email,
         phone:           fullPhone,
         address:         `${data.city}, ${data.country}`,
+        password:        data.password,
+        recoveryKey:     data.recoveryKey,       // NEW — backend hashes this as recovery_key_hash
         expertise:       data.expertise,
         role:            inviteRole || undefined,
         conferenceId:    inviteConferenceId || undefined,
@@ -524,7 +480,7 @@ const Register = () => {
 
   const fieldError = (name) => errors[name]?.message;
 
-  // ─── Loading skeleton ──────────────────────────────────────────────────────
+  // ── Loading skeleton ─────────────────────────────────────────────────────
   if (tokenLoading) {
     return (
       <Layout title="PaperDesk - Register">
@@ -536,7 +492,7 @@ const Register = () => {
             </div>
             <Card className="shadow-lg">
               <CardContent className="p-8 space-y-5">
-                {[...Array(5)].map((_, i) => (
+                {[...Array(6)].map((_, i) => (
                   <div key={i} className="space-y-1.5">
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-10 w-full rounded-md" />
@@ -551,7 +507,7 @@ const Register = () => {
     );
   }
 
-  // ─── Invalid token ─────────────────────────────────────────────────────────
+  // ── Invalid token ────────────────────────────────────────────────────────
   if (token && !tokenValid) {
     return (
       <Layout title="PaperDesk - Invalid Link">
@@ -565,9 +521,7 @@ const Register = () => {
               <p className="text-muted-foreground text-sm">
                 This invitation link is no longer valid. Request a new one from the conference Editor.
               </p>
-              <Button className="mt-6" onClick={() => navigate("/login")}>
-                Go to Sign In
-              </Button>
+              <Button className="mt-6" onClick={() => navigate("/login")}>Go to Sign In</Button>
             </CardContent>
           </Card>
         </div>
@@ -575,13 +529,12 @@ const Register = () => {
     );
   }
 
-  // ─── Main form ─────────────────────────────────────────────────────────────
+  // ── Main form ─────────────────────────────────────────────────────────────
   return (
     <Layout title="PaperDesk - Register">
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-16 bg-background">
         <div className="w-full max-w-md animate-fade-in">
 
-          {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-extrabold tracking-tight">
               {inviteRole
@@ -589,9 +542,7 @@ const Register = () => {
                 : "Create an account"}
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
-              {inviteConferenceName
-                ? `Joining: ${inviteConferenceName}`
-                : "Start managing your research journey"}
+              {inviteConferenceName ? `Joining: ${inviteConferenceName}` : "Start managing your research journey"}
             </p>
           </div>
 
@@ -599,7 +550,6 @@ const Register = () => {
             <CardContent className="p-8">
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
-                {/* Invited-as banner */}
                 {inviteEmail && (
                   <div className="rounded-lg bg-primary/10 border border-primary/20 px-4 py-3 text-sm font-medium text-primary">
                     Invited as: <span className="font-bold">{inviteEmail}</span>
@@ -619,9 +569,7 @@ const Register = () => {
                     className={fieldError("name") ? "border-destructive" : ""}
                   />
                   {fieldError("name") && (
-                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                      <X className="h-3 w-3" />{fieldError("name")}
-                    </p>
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("name")}</p>
                   )}
                 </div>
 
@@ -635,24 +583,18 @@ const Register = () => {
                     disabled={!!inviteEmail}
                     {...register("email", {
                       required: "Email is required.",
-                      pattern: {
-                        value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                        message: "Enter a valid email address.",
-                      },
+                      pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "Enter a valid email address." },
                     })}
                     className={fieldError("email") || emailExistsError ? "border-destructive" : ""}
                   />
                   {fieldError("email") && (
-                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                      <X className="h-3 w-3" />{fieldError("email")}
-                    </p>
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("email")}</p>
                   )}
                   {emailExistsError && (
                     <div className="flex items-center gap-2 text-xs font-medium text-destructive">
                       <X className="h-3 w-3 shrink-0" />
                       This email is already registered.{" "}
-                      <button type="button" onClick={() => navigate("/login")}
-                        className="underline hover:no-underline font-semibold">
+                      <button type="button" onClick={() => navigate("/login")} className="underline hover:no-underline font-semibold">
                         Sign in here
                       </button>
                     </div>
@@ -683,6 +625,139 @@ const Register = () => {
                   watch={watch}
                 />
 
+                {/* Password */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      {...register("password", {
+                        required: "Password is required.",
+                        minLength: { value: 8, message: "At least 8 characters." },
+                        validate: {
+                          hasUppercase:  (v) => /[A-Z]/.test(v)        || "Include at least one uppercase letter.",
+                          hasLowercase:  (v) => /[a-z]/.test(v)        || "Include at least one lowercase letter.",
+                          hasNumber:     (v) => /[0-9]/.test(v)        || "Include at least one number.",
+                          hasSpecial:    (v) => /[^A-Za-z0-9]/.test(v) || "Include at least one special character.",
+                        },
+                      })}
+                      className={`pr-10 ${fieldError("password") ? "border-destructive" : ""}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {fieldError("password") ? (
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("password")}</p>
+                  ) : (
+                    <PasswordStrength password={passwordVal} />
+                  )}
+                </div>
+
+                {/* Confirm password */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirmPassword">Confirm password</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmPassword"
+                      type={showConfirm ? "text" : "password"}
+                      placeholder="••••••••"
+                      {...register("confirmPassword", {
+                        required: "Please confirm your password.",
+                        validate: (v) => v === passwordVal || "Passwords do not match.",
+                      })}
+                      className={`pr-10 ${fieldError("confirmPassword") ? "border-destructive" : ""}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {fieldError("confirmPassword") && (
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("confirmPassword")}</p>
+                  )}
+                </div>
+
+                {/* ── Recovery Key ─────────────────────────────────────────── */}
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Secret Recovery Key</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        Used to reset your password if you ever get locked out. Store it somewhere safe — we cannot recover it for you.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="recoveryKey">Recovery key</Label>
+                    <div className="relative">
+                      <Input
+                        id="recoveryKey"
+                        type={showRecoveryKey ? "text" : "password"}
+                        placeholder="••••••••"
+                        {...register("recoveryKey", {
+                          required: "Recovery key is required.",
+                          minLength: { value: 8, message: "At least 8 characters." },
+                          validate: {
+                            hasUppercase:  (v) => /[A-Z]/.test(v)        || "Include at least one uppercase letter.",
+                            hasLowercase:  (v) => /[a-z]/.test(v)        || "Include at least one lowercase letter.",
+                            hasNumber:     (v) => /[0-9]/.test(v)        || "Include at least one number.",
+                            hasSpecial:    (v) => /[^A-Za-z0-9]/.test(v) || "Include at least one special character.",
+                            notSameAsPassword: (v) => v !== passwordVal  || "Recovery key must be different from your password.",
+                          },
+                        })}
+                        className={`pr-10 ${fieldError("recoveryKey") ? "border-destructive" : ""}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryKey((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showRecoveryKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {fieldError("recoveryKey") ? (
+                      <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("recoveryKey")}</p>
+                    ) : (
+                      <PasswordStrength password={recoveryKeyVal} />
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirmRecoveryKey">Confirm recovery key</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmRecoveryKey"
+                        type={showRecoveryKey ? "text" : "password"}
+                        placeholder="••••••••"
+                        {...register("confirmRecoveryKey", {
+                          required: "Please confirm your recovery key.",
+                          validate: (v) => v === recoveryKeyVal || "Recovery keys do not match.",
+                        })}
+                        className={`pr-10 ${fieldError("confirmRecoveryKey") ? "border-destructive" : ""}`}
+                      />
+                    </div>
+                    {fieldError("confirmRecoveryKey") && (
+                      <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{fieldError("confirmRecoveryKey")}</p>
+                    )}
+                  </div>
+                </div>
+                {/* ── End Recovery Key ─────────────────────────────────────── */}
+
                 {/* Expertise (reviewer only) */}
                 {isReviewer && expertiseOptions.length > 0 && (
                   <div className="space-y-2">
@@ -690,8 +765,7 @@ const Register = () => {
                     <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg bg-muted/30">
                       {expertiseOptions.map((exp, i) => (
                         <label key={i} className="flex items-center gap-2 text-sm cursor-pointer group">
-                          <input type="checkbox" {...register("expertise")} value={exp}
-                            className="w-4 h-4 rounded accent-primary" />
+                          <input type="checkbox" {...register("expertise")} value={exp} className="w-4 h-4 rounded accent-primary" />
                           <span className="group-hover:text-primary transition-colors">{exp}</span>
                         </label>
                       ))}

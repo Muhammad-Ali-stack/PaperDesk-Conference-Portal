@@ -1,48 +1,30 @@
-import { useEffect, useRef } from "react";
+import React from "react";
+import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/Auth";
-import { Outlet, Navigate, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { toast } from "react-hot-toast";
+import { Skeleton } from "../components/ui/skeleton";
 
-export default function UserPrivateRoute() {
-  const [auth, setAuth] = useAuth();
-  const navigate = useNavigate();
-  const verified = useRef(false);
+const BootSkeleton = () => (
+  <div className="min-h-[calc(100vh-4rem)] px-6 py-10 max-w-5xl mx-auto space-y-6">
+    <Skeleton className="h-8 w-48" />
+    <Skeleton className="h-4 w-72" />
+    <div className="space-y-3 pt-4">
+      <Skeleton className="h-32 w-full rounded-xl" />
+      <Skeleton className="h-32 w-full rounded-xl" />
+      <Skeleton className="h-32 w-full rounded-xl" />
+    </div>
+  </div>
+);
 
-  useEffect(() => {
-    if (!auth?.token || verified.current) return;
+const UserPrivateRoute = () => {
+  const [auth, , , , isInitialized] = useAuth();
 
-    const authCheck = async () => {
-      try {
-        const res = await axios.get("/api/auth/user-auth", {
-          // FIX: Add "Bearer " prefix to the Authorization header
-          headers: { Authorization: `Bearer ${auth.token}` },
-        });
-        if (res.data.ok) {
-          verified.current = true;
-        } else {
-          setAuth({ user: null, token: "" });
-          localStorage.removeItem("auth");
-          navigate("/login");
-        }
-      } catch (error) {
-        if (error.response?.data?.name === "TokenExpiredError") {
-          toast.error("Your session has expired. Please sign in again.");
-        } else {
-          toast.error("Your session could not be verified. Please sign in again.");
-        }
-        setAuth({ user: null, token: "" });
-        localStorage.removeItem("auth");
-        navigate("/login");
-      }
-    };
+  if (!isInitialized) return <BootSkeleton />;
 
-    authCheck();
-  }, [auth?.token, setAuth, navigate]);
-
-  if (!auth?.token) {
-    return <Navigate to="/login" />;
+  if (!auth?.token || !auth?.user?._id) {
+    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;
-}
+};
+
+export default UserPrivateRoute;

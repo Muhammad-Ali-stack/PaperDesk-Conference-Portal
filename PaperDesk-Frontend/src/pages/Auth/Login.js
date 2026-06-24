@@ -10,7 +10,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 const ADMIN_PORTAL_URL = "https://admin-fe-con-forum.vercel.app/login";
 
@@ -21,26 +21,31 @@ const roleDashboardMap = {
 };
 
 const Login = () => {
-  const { register, handleSubmit, formState: { errors } , setValue } = useForm();
+  const { register, handleSubmit, formState: { errors }, setValue } = useForm();
   const [auth, setAuth, , fetchRoles] = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate  = useNavigate();
+  const location  = useLocation();
+
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [step, setStep] = useState("login");
+  const [showPassword, setShowPassword] = useState(false);
+
+  // OTP step state
+  const [step, setStep]               = useState("login");
   const [pendingUserId, setPendingUserId] = useState(null);
-  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
-  const [otpError, setOtpError] = useState("");
+  const [otpDigits, setOtpDigits]     = useState(["", "", "", "", "", ""]);
+  const [otpError, setOtpError]       = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const otpRefs = useRef([]);
 
+  // Invitation token state
   const params = new URLSearchParams(location.search);
-  const token = params.get("token");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("");
+  const token  = params.get("token");
+  const [inviteEmail, setInviteEmail]               = useState("");
+  const [inviteRole, setInviteRole]                 = useState("");
   const [inviteConferenceId, setInviteConferenceId] = useState("");
   const [inviteConferenceName, setInviteConferenceName] = useState("");
   const [tokenLoading, setTokenLoading] = useState(!!token);
-  const [tokenValid, setTokenValid] = useState(!token);
+  const [tokenValid, setTokenValid]     = useState(!token);
 
   useEffect(() => {
     if (!token) return;
@@ -48,12 +53,12 @@ const Login = () => {
       try {
         const res = await axios.get(`/api/auth/invitation/${token}`);
         if (res.data.success) {
-          const inviteData = res.data.data;
-          setInviteEmail(inviteData.email);
-          setInviteRole(inviteData.role);
-          setInviteConferenceId(inviteData.conferenceId || "");
-          setInviteConferenceName(inviteData.conferenceName || "");
-          setValue("email", inviteData.email);
+          const d = res.data.data;
+          setInviteEmail(d.email);
+          setInviteRole(d.role);
+          setInviteConferenceId(d.conferenceId || "");
+          setInviteConferenceName(d.conferenceName || "");
+          setValue("email", d.email);
           setTokenValid(true);
         } else {
           setTokenValid(false);
@@ -88,13 +93,13 @@ const Login = () => {
     axios.defaults.headers.common["Authorization"] = `Bearer ${authToken}`;
 
     const immediateRoles = roles || [];
-    const immediateAuth = { user, token: authToken, roles: immediateRoles };
+    const immediateAuth  = { user, token: authToken, roles: immediateRoles };
     setAuth(immediateAuth);
     localStorage.setItem("auth", JSON.stringify(immediateAuth));
 
     if (user?._id) {
       const freshRoles = await fetchRoles(user._id);
-      const freshAuth = { user, token: authToken, roles: freshRoles || immediateRoles };
+      const freshAuth  = { user, token: authToken, roles: freshRoles || immediateRoles };
       localStorage.setItem("auth", JSON.stringify(freshAuth));
     }
 
@@ -105,27 +110,32 @@ const Login = () => {
     }
   };
 
-  // Step 1: send email → backend either returns trusted-device token or sends OTP
+  // Step 1: verify email + password
+  // Backend either authenticates via trusted device (no OTP) or sends OTP
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     try {
       const payload = {
-        email: data.email,
-        ...(inviteRole && { role: inviteRole }),
-        ...(inviteConferenceId && { conferenceId: inviteConferenceId }),
+        email:    data.email,
+        password: data.password,
+        ...(inviteRole          && { role: inviteRole }),
+        ...(inviteConferenceId  && { conferenceId: inviteConferenceId }),
         ...(inviteConferenceName && { conferenceName: inviteConferenceName }),
-        ...(token && { invitationToken: token }),
+        ...(token               && { invitationToken: token }),
       };
+
       const res = await axios.post("/api/auth/login", payload, { withCredentials: true });
+
       if (res.data.success) {
         if (res.data.requiresOtp) {
+          // Password was correct — now ask for OTP (new device)
           setPendingUserId(res.data.data.userId);
           setStep("otp");
           setOtpDigits(["", "", "", "", "", ""]);
           setOtpError("");
           setTimeout(() => otpRefs.current[0]?.focus(), 100);
         } else {
-          // Trusted device — backend returned access token directly
+          // Trusted device — access token returned directly
           if (isAdminUser(res.data.data?.user)) { redirectToAdminPortal(); return; }
           await completeLogin(res.data);
         }
@@ -167,7 +177,7 @@ const Login = () => {
       const res = await axios.post(
         "/api/auth/verify-otp",
         { userId: pendingUserId, otp },
-        { withCredentials: true }   // needed so the HttpOnly refresh cookie is saved
+        { withCredentials: true }
       );
       if (res.data.success) {
         await completeLogin(res.data);
@@ -182,7 +192,7 @@ const Login = () => {
     }
   };
 
-  // ── Loading skeleton while invite token resolves ──
+  // ── Loading skeleton ──
   if (tokenLoading) {
     return (
       <Layout title="PaperDesk - Sign In">
@@ -191,6 +201,7 @@ const Login = () => {
             <Skeleton className="h-8 w-48 mx-auto" />
             <Skeleton className="h-4 w-64 mx-auto" />
             <div className="space-y-3 mt-6">
+              <Skeleton className="h-10 w-full rounded-md" />
               <Skeleton className="h-10 w-full rounded-md" />
               <Skeleton className="h-10 w-full rounded-md" />
             </div>
@@ -238,7 +249,7 @@ const Login = () => {
             </p>
           </div>
 
-          {/* ── Step 1: Email entry ── */}
+          {/* ── Step 1: Email + Password ── */}
           {step === "login" && (
             <Card className="shadow-lg">
               <CardContent className="p-8">
@@ -250,6 +261,7 @@ const Login = () => {
                     </div>
                   )}
 
+                  {/* Email */}
                   <div className="space-y-1.5">
                     <Label htmlFor="email">Email address</Label>
                     <Input
@@ -271,10 +283,47 @@ const Login = () => {
                     )}
                   </div>
 
+                  {/* Password */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Password</Label>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/forgot-password")}
+                        className="text-xs text-primary hover:underline font-medium"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        {...register("password", {
+                          required: "Password is required.",
+                          minLength: { value: 8, message: "Password must be at least 8 characters." },
+                        })}
+                        className={`pr-10 ${errors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {errors.password && (
+                      <p className="text-destructive text-xs font-medium">{errors.password.message}</p>
+                    )}
+                  </div>
+
                   <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">
                     {isSubmitting
                       ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Signing in…</>
-                      : "Continue with Email"}
+                      : "Sign In"}
                   </Button>
                 </form>
 
@@ -291,13 +340,13 @@ const Login = () => {
             </Card>
           )}
 
-          {/* ── Step 2: OTP verification ── */}
+          {/* ── Step 2: OTP verification (new device) ── */}
           {step === "otp" && (
             <Card className="shadow-lg">
               <CardHeader className="pb-2">
                 <CardTitle className="text-center">Check your email</CardTitle>
                 <CardDescription className="text-center">
-                  We sent a 6-digit verification code. Enter it below.
+                  New device detected. We sent a 6-digit verification code — enter it below.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-8 pt-4">

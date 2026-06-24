@@ -892,9 +892,6 @@ export const getResearchPaperByIdController = async (req, res) => {
 // ============================================================================
 // FIXED: getUserConferencePapersController
 // ============================================================================
-// ============================================================================
-// FIXED: getUserConferencePapersController - Search by user_id AND email
-// ============================================================================
 
 export const getUserConferencePapersController = async (req, res) => {
   try {
