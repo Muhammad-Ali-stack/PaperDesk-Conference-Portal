@@ -4,6 +4,7 @@ import {
   registerController,
   loginController,
   verifyOtpController,
+   forgotPasswordController,  
   refreshTokenController,
   logoutController,
   logoutAllDevicesController,
@@ -54,7 +55,7 @@ const otpVerifyLimiter = rateLimit({
 // ── Public routes ──────────────────────────────────────────────────────────────
 
 router.post("/register", authLimiter, registerController);
-
+router.post("/forgot-password", authLimiter, forgotPasswordController);
 /**
  * POST /api/auth/login
  * Step 1 of the auth flow.

@@ -101,6 +101,7 @@ export const registerController = async (req, res) => {
       name,
       email,
       phone,
+      recoveryKey, 
       address,
       expertise,
       conferenceId,
@@ -212,17 +213,20 @@ export const registerController = async (req, res) => {
     }
 
     // ── New user — hash password and save ──
-    const passwordHash = await bcrypt.hash(password, 12);
+// ── New user — hash password and save ──
+const passwordHash    = await bcrypt.hash(password, 12);
+const recoveryKeyHash = recoveryKey ? await bcrypt.hash(recoveryKey, 10) : null;
 
-    const { data: savedUser, error: insertError } = await supabase
-      .from("users")
-      .insert({
-        name,
-        email,
-        phone,
-        password_hash: passwordHash,   // NEW column
-        ...(address && { address }),
-      })
+const { data: savedUser, error: insertError } = await supabase
+  .from("users")
+  .insert({
+    name,
+    email,
+    phone,
+    password_hash:     passwordHash,
+    recovery_key_hash: recoveryKeyHash,
+    ...(address && { address }),
+  })
       .select()
       .single();
 
