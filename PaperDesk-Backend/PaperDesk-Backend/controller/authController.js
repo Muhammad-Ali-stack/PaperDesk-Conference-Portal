@@ -8,7 +8,7 @@ import { sendMail, isEmailReady } from "../config/mailer.js";
 const OTP_EXPIRY_MINUTES = 10;
 const ACCESS_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
-const MAX_OTP_ATTEMPTS = 100;
+const MAX_OTP_ATTEMPTS = 10;
 
 // ── Helpers ──────────────────────────────────────────────────
 
