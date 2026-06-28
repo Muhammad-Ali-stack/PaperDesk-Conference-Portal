@@ -204,14 +204,14 @@ const services = [
   { title: "Author", desc: "Submit papers, track revisions, and follow your manuscript through every stage of the review process.", Icon: IconAuthor, num: "01" },
   { title: "Reviewer", desc: "Access structured evaluation tools, manage assignments, and provide consistent, high-quality feedback.", Icon: IconReviewer, num: "02" },
   { title: "Administrator", desc: "Oversee all users, conferences, and submissions from a single unified control panel.", Icon: IconAdmin, num: "03" },
-  { title: "Organizer", desc: "Design your programme, set deadlines, manage tracks, and communicate with all participants.", Icon: IconOrganizer, num: "04" },
+  { title: "Editor", desc: "Design your programme, set deadlines, manage tracks, and communicate with all participants.", Icon: IconOrganizer, num: "04" },
 ];
 
 const howItWorks = [
-  { step: "01", title: "Create or Join a Conference", body: "Organizers set up a conference in minutes. Researchers find and register for events relevant to their field." },
+  { step: "01", title: "Create or Join a Conference", body: "Editorsset up a conference in minutes. Researchers find and register for events relevant to their field." },
   { step: "02", title: "Submit Your Research", body: "Authors upload papers through a guided, structured submission flow with real-time deadline tracking." },
   { step: "03", title: "Peer Review Process", body: "Reviewers are matched to submissions. Feedback is collected, scored, and surfaced to authors transparently." },
-  { step: "04", title: "Decision & Publication", body: "Organizers issue decisions. Accepted papers are archived and made discoverable on the platform." },
+  { step: "04", title: "Decision & Publication", body: "Editors issue decisions. Accepted papers are archived and made discoverable on the platform." },
 ];
 
 const whyUs = [

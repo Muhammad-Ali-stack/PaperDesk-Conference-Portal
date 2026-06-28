@@ -186,7 +186,7 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
                 <input
                   ref={searchRef}
                   type="text"
-                  placeholder="Search by country or code…"
+                  placeholder="Search by country code…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full pl-8 pr-8 py-2 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
@@ -251,35 +251,21 @@ const PhoneField = ({ countries, loading, selectedCountry, onCountryChange, regi
 };
 
 // ─── LocationFields ───────────────────────────────────────────────────────────
+// 🔽 CHANGED: City dropdown removed → now a plain text input.
 const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountryChange,
   setValue, register, errors, watch }) => {
-  const [citiesData, setCitiesData]       = useState([]);
-  const [citiesLoading, setCitiesLoading] = useState(false);
   const watchCountry = watch("country");
 
-  const fetchCities = useCallback(async (countryName) => {
-    if (!countryName) return;
-    setCitiesLoading(true);
-    setCitiesData([]);
-    setValue("city", "");
-    try {
-      const res  = await fetch("https://raw.githubusercontent.com/russ666/all-countries-and-cities-json/master/countries.min.json");
-      const data = await res.json();
-      const cities = data[countryName];
-      setCitiesData(Array.isArray(cities) ? cities.sort() : []);
-    } catch {
-      setCitiesData([]);
-    } finally {
-      setCitiesLoading(false);
-    }
-  }, [setValue]);
-
+  // When country changes, update the selectedCountry object and clear city
   useEffect(() => {
     if (!watchCountry) return;
     const match = countries.find((c) => c.name === watchCountry);
-    if (match && match.code !== selectedCountry?.code) onCountryChange(match);
-    fetchCities(watchCountry);
-  }, [watchCountry]); // eslint-disable-line
+    if (match && match.code !== selectedCountry?.code) {
+      onCountryChange(match);
+    }
+    // Clear city when country changes (optional)
+    setValue("city", "");
+  }, [watchCountry, countries, selectedCountry, onCountryChange, setValue]);
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -304,34 +290,18 @@ const LocationFields = ({ countries, countriesLoading, selectedCountry, onCountr
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="city">
-          City
-          {citiesLoading && <Loader2 className="inline ml-1.5 h-3 w-3 animate-spin text-muted-foreground" />}
-        </Label>
-
-        {citiesData.length > 0 ? (
-          <div className="relative">
-            <select
-              id="city"
-              {...register("city", { required: "Select your city." })}
-              className={`w-full h-10 pl-3 pr-8 text-sm border rounded-md bg-background appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring ${errors.city ? "border-destructive" : "border-input"}`}
-            >
-              <option value="">Select city</option>
-              {citiesData.map((city) => <option key={city} value={city}>{city}</option>)}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          </div>
-        ) : (
-          <Input
-            id="city"
-            placeholder={!watchCountry ? "Country first" : citiesLoading ? "Loading…" : "Your city"}
-            disabled={!watchCountry || citiesLoading}
-            {...register("city", { required: "City is required." })}
-            className={errors.city ? "border-destructive" : ""}
-          />
+        <Label htmlFor="city">City</Label>
+        <Input
+          id="city"
+          placeholder="Enter your city"
+          {...register("city", { required: "City is required." })}
+          className={errors.city ? "border-destructive" : ""}
+        />
+        {errors.city && (
+          <p className="text-destructive text-xs font-medium flex items-center gap-1">
+            <X className="h-3 w-3" />{errors.city.message}
+          </p>
         )}
-
-        {errors.city && <p className="text-destructive text-xs font-medium flex items-center gap-1"><X className="h-3 w-3" />{errors.city.message}</p>}
       </div>
     </div>
   );
@@ -354,7 +324,7 @@ const Register = () => {
   const [emailExistsError, setEmailExistsError] = useState(false);
   const [showPassword, setShowPassword]         = useState(false);
   const [showConfirm, setShowConfirm]           = useState(false);
-  const [showRecoveryKey, setShowRecoveryKey]   = useState(false);  // NEW
+  const [showRecoveryKey, setShowRecoveryKey]   = useState(false);
 
   const [countries, setCountries]               = useState([]);
   const [countriesLoading, setCountriesLoading] = useState(true);
@@ -369,13 +339,13 @@ const Register = () => {
     defaultValues: {
       expertise: [], phone: "", country: "", city: "",
       password: "", confirmPassword: "",
-      recoveryKey: "", confirmRecoveryKey: "",   // NEW
+      recoveryKey: "", confirmRecoveryKey: "",
     },
   });
 
   const navigate      = useNavigate();
   const passwordVal   = watch("password");
-  const recoveryKeyVal = watch("recoveryKey");  // NEW
+  const recoveryKeyVal = watch("recoveryKey");
 
   // ── Fetch countries ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -446,7 +416,7 @@ const Register = () => {
         phone:           fullPhone,
         address:         `${data.city}, ${data.country}`,
         password:        data.password,
-        recoveryKey:     data.recoveryKey,       // NEW — backend hashes this as recovery_key_hash
+        recoveryKey:     data.recoveryKey,
         expertise:       data.expertise,
         role:            inviteRole || undefined,
         conferenceId:    inviteConferenceId || undefined,
